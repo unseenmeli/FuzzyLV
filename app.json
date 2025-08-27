@@ -2,6 +2,13 @@
   "scheme": "acme",
   "userInterfaceStyle": "automatic",
   "orientation": "default",
+  "version": "1.0.0",
+  "icon": "./assets/icon.png",
+  "splash": {
+    "image": "./assets/splash.png",
+    "resizeMode": "contain",
+    "backgroundColor": "#ffffff"
+  },
   "web": {
     "output": "static"
   },
@@ -13,6 +20,19 @@
       }
     ]
   ],
-  "name": "fuzzy",
-  "slug": "fuzzy"
+  "name": "FuzzyLV",
+  "slug": "fuzzy",
+  "ios": {
+    "bundleIdentifier": "com.unseenmeli.fuzzy",
+    "buildNumber": "1",
+    "supportsTablet": true
+  },
+  "extra": {
+    "router": {
+      "origin": "https://n"
+    },
+    "eas": {
+      "projectId": "b329d4ad-adac-44d8-8a06-369a539387e4"
+    }
+  }
 }
