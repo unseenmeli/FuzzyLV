@@ -35,7 +35,6 @@ export default function Login() {
         className="flex-1 justify-center px-8"
       >
         {!sentEmail ? (
-          // Email input step
           <View className="bg-black/20 rounded-3xl p-8 backdrop-blur-xl">
             <Text className="text-white text-3xl font-bold text-center mb-2">
               Welcome to Fuzzy
@@ -64,7 +63,6 @@ export default function Login() {
             </TouchableOpacity>
           </View>
         ) : (
-          // Code verification step
           <View className="bg-black/20 rounded-3xl p-8 backdrop-blur-xl">
             <Text className="text-white text-3xl font-bold text-center mb-2">
               Check your email
