@@ -45,12 +45,16 @@ export default function Login() {
             
             <TextInput
               className="bg-white/10 text-white px-4 py-4 rounded-xl mb-4 text-lg"
+              style={{ lineHeight: 22 }}
               placeholder="Enter your email"
               placeholderTextColor="rgba(255,255,255,0.5)"
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="email"
+              textContentType="emailAddress"
             />
             
             <TouchableOpacity
@@ -73,12 +77,15 @@ export default function Login() {
             
             <TextInput
               className="bg-white/10 text-white px-4 py-4 rounded-xl mb-4 text-lg text-center"
+              style={{ lineHeight: 22 }}
               placeholder="Enter 6-digit code"
               placeholderTextColor="rgba(255,255,255,0.5)"
               value={code}
               onChangeText={setCode}
               keyboardType="number-pad"
               maxLength={6}
+              autoCorrect={false}
+              autoCapitalize="none"
             />
             
             <TouchableOpacity

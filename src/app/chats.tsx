@@ -7,11 +7,13 @@ import {
   TextInput,
   Modal,
   Alert,
+  Image,
 } from "react-native";
 import { router } from "expo-router";
 import { GradientBackground, themes } from "@/utils/shared";
 import db from "@/utils/db";
 import { id } from "@instantdb/react-native";
+import pushNotificationService from "@/services/pushNotificationService";
 
 export default function Chats() {
   const { user } = db.useAuth();
@@ -140,7 +142,8 @@ export default function Chats() {
               .update({
                 name: invite.receiverUsername || "Friend",
                 type: "friend",
-                emoji: "😊",
+                emoji: invite.friendEmoji || "😊",
+                photo: invite.friendPhoto || null,
                 friendUsername: invite.receiverUsername,
                 status: "active",
                 createdAt: Date.now(),
@@ -228,6 +231,18 @@ export default function Chats() {
           .link({ sender: user.id })
       );
 
+      try {
+        if (targetProfile.pushToken && targetProfile.notificationsEnabled) {
+          await pushNotificationService.sendConnectionRequestNotification(
+            targetProfile.pushToken,
+            userProfile.username
+          );
+          console.log("Connection request notification sent to:", targetProfile.username);
+        }
+      } catch (notifError) {
+        console.error("Error sending connection request notification:", notifError);
+      }
+
       Alert.alert("Success", "Connection request sent!");
       setConnectionCode("");
       setAddConnectionModal(false);
@@ -289,7 +304,8 @@ export default function Chats() {
             .update({
               name: invite.senderUsername || "Friend",
               type: "friend",
-              emoji: "😊",
+              emoji: invite.friendEmoji || "😊",
+              photo: invite.friendPhoto || null,
               friendUsername: invite.senderUsername,
               status: "active",
               createdAt: Date.now(),
@@ -586,9 +602,16 @@ export default function Chats() {
                   }
                 >
                   <View className="flex-row items-center">
-                    <Text className="text-3xl mr-3">
-                      {friend.emoji || "😊"}
-                    </Text>
+                    {friend.photo ? (
+                      <Image
+                        source={{ uri: friend.photo }}
+                        style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }}
+                      />
+                    ) : (
+                      <Text className="text-3xl mr-3">
+                        {friend.emoji || "😊"}
+                      </Text>
+                    )}
                     <View>
                       <Text className="text-white font-semibold">
                         {friend.name}
