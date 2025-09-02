@@ -9,23 +9,29 @@ const _schema = i.schema({
     profiles: i.entity({
       username: i.string().unique().indexed(),
       friendCode: i.string().unique().indexed(),
+      photo: i.string().optional(),
+      emoji: i.string().optional(),
+      pushToken: i.string().optional(),
+      notificationsEnabled: i.boolean().optional(),
       createdAt: i.number(),
     }),
     connections: i.entity({
-      status: i.string(), // "pending", "accepted", "blocked"
+      status: i.string(),
       senderUsername: i.string(),
       receiverUsername: i.string(),
       createdAt: i.number(),
       acceptedAt: i.number().optional(),
     }),
     invitations: i.entity({
-      type: i.string(), // "relationship", "friendship", "group"
-      status: i.string(), // "pending", "accepted", "declined"
+      type: i.string(),
+      status: i.string(),
       senderUsername: i.string(),
       receiverUsername: i.string(),
-      groupId: i.string().optional(), // For group invites
+      groupId: i.string().optional(),
       message: i.string().optional(),
-      processedBySender: i.boolean().optional(), // Track if sender has created their side
+      processedBySender: i.boolean().optional(),
+      friendPhoto: i.string().optional(),
+      friendEmoji: i.string().optional(),
       createdAt: i.number(),
       respondedAt: i.number().optional(),
     }),
@@ -36,6 +42,8 @@ const _schema = i.schema({
       photo: i.string().optional(),
       mood: i.string().optional(),
       note: i.string().optional(),
+      partnerMood: i.string().optional(),
+      partnerNote: i.string().optional(),
       partnerUsername: i.string().optional(),
       createdAt: i.number(),
     }),
@@ -44,6 +52,10 @@ const _schema = i.schema({
       type: i.string(),
       emoji: i.string().optional(),
       photo: i.string().optional(),
+      mood: i.string().optional(),
+      note: i.string().optional(),
+      friendMood: i.string().optional(),
+      friendNote: i.string().optional(),
       status: i.string().optional(),
       friendUsername: i.string().optional(),
       lastSeen: i.number().optional(),
@@ -66,11 +78,11 @@ const _schema = i.schema({
     }),
     messages: i.entity({
       text: i.string(),
-      chatType: i.string(), // "relationship", "friendship", "group"
-      chatId: i.string(), // ID of the relationship/friendship/group
+      chatType: i.string(),
+      chatId: i.string(),
       senderUsername: i.string(),
-      receiverUsername: i.string().optional(), // For direct chats
-      groupId: i.string().optional(), // For group messages
+      receiverUsername: i.string().optional(),
+      groupId: i.string().optional(),
       createdAt: i.number(),
       isRead: i.boolean().optional(),
     }),

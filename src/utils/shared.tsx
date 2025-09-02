@@ -49,6 +49,22 @@ export const themes = {
     footer: "#052e16",
     footerBorder: "rgba(134,239,172,0.2)",
   },
+  connection: {
+    gradient: ["#86efac", "#22c55e", "#15803d", "#052e16"] as const,
+    header: "rgba(34,197,94,0.25)",
+    headerBorder: "rgba(134,239,172,0.3)",
+    card: "rgba(34,197,94,0.1)",
+    cardBorder: "rgba(134,239,172,0.25)",
+    innerCard: "rgba(255,255,255,0.05)",
+    innerCardBorder: "rgba(134,239,172,0.3)",
+    text: "text-green-200/90",
+    textLight: "text-green-300/80",
+    textMedium: "text-green-300",
+    textAccent: "text-green-400",
+    borderAccent: "border-green-400/50",
+    footer: "#052e16",
+    footerBorder: "rgba(134,239,172,0.2)",
+  },
 };
 export const gradients = {
   pink: themes.relationship.gradient,

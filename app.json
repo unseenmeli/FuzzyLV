@@ -1,5 +1,5 @@
 {
-  "scheme": "acme",
+  "scheme": "fuzzy",
   "userInterfaceStyle": "automatic",
   "orientation": "default",
   "version": "1.0.0",
@@ -18,14 +18,33 @@
       {
         "origin": "https://n"
       }
+    ],
+    [
+      "expo-notifications",
+      {
+        "icon": "./assets/icon.png",
+        "color": "#ffffff",
+        "sounds": []
+      }
+    ],
+    [
+      "expo-image-picker",
+      {
+        "photosPermission": "Allow Fuzzy to access your photos to set profile pictures for your friends."
+      }
     ]
   ],
-  "name": "FuzzyLV",
+  "name": "Fuzzy",
   "slug": "fuzzy",
   "ios": {
     "bundleIdentifier": "com.unseenmeli.fuzzy",
     "buildNumber": "1",
-    "supportsTablet": true
+    "supportsTablet": true,
+    "infoPlist": {
+      "NSUserNotificationsCenterUsageDescription": "Allow Fuzzy to send you notifications about new messages from your friends.",
+      "NSPhotoLibraryUsageDescription": "Allow Fuzzy to access your photos to set profile pictures for your friends.",
+      "ITSAppUsesNonExemptEncryption": false
+    }
   },
   "extra": {
     "router": {
@@ -34,5 +53,11 @@
     "eas": {
       "projectId": "b329d4ad-adac-44d8-8a06-369a539387e4"
     }
+  },
+  "android": {
+    "permissions": [
+      "android.permission.RECORD_AUDIO"
+    ],
+    "package": "com.unseenmeli.fuzzy"
   }
 }

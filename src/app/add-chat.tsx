@@ -10,6 +10,7 @@ import { useState } from "react";
 import { GradientBackground, themes } from "@/utils/shared";
 import db from "@/utils/db";
 import { id } from "@instantdb/react-native";
+import pushNotificationService from "@/services/pushNotificationService";
 
 export default function AddChat() {
   const { user } = db.useAuth();
@@ -84,20 +85,53 @@ export default function AddChat() {
     try {
       const inviteId = id();
       
+      const invitationData: any = {
+        type: chatType,
+        status: "pending",
+        senderUsername: myProfile.username,
+        receiverUsername: targetUsername,
+        message: `${myProfile.username} invites you to start a ${chatType}`,
+        createdAt: Date.now(),
+      };
+
+      if (myProfile.photo) {
+        invitationData.friendPhoto = myProfile.photo;
+      } else if (myProfile.emoji) {
+        invitationData.friendEmoji = myProfile.emoji;
+      }
+
       await db.transact(
         db.tx.invitations[inviteId]
-          .update({
-            type: chatType,
-            status: "pending",
-            senderUsername: myProfile.username,
-            receiverUsername: targetUsername,
-            message: `${myProfile.username} invites you to start a ${chatType}`,
-            createdAt: Date.now(),
-          })
+          .update(invitationData)
           .link({ 
             sender: user.id,
           })
       );
+      
+      try {
+        const recipientResult = await db.queryOnce({
+          profiles: {
+            $: {
+              where: { username: targetUsername }
+            }
+          }
+        });
+        
+        const recipientProfile = recipientResult.data?.profiles?.[0];
+        
+        if (recipientProfile?.pushToken && recipientProfile?.notificationsEnabled) {
+          if (chatType === "relationship" || chatType === "friendship") {
+            await pushNotificationService.sendInvitationNotification(
+              recipientProfile.pushToken,
+              myProfile.username,
+              chatType as 'relationship' | 'friendship'
+            );
+            console.log("Invitation notification sent to:", targetUsername);
+          }
+        }
+      } catch (notifError) {
+        console.error("Error sending invitation notification:", notifError);
+      }
       
       Alert.alert(
         "Invitation Sent!", 

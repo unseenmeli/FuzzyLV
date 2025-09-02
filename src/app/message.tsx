@@ -8,11 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Image,
 } from "react-native";
 import { router } from "expo-router";
 import db from "@/utils/db";
 import { GradientBackground, themes } from "@/utils/shared";
 import { id } from "@instantdb/react-native";
+import pushNotificationService from "@/services/pushNotificationService";
 
 export default function Message() {
   const { user } = db.useAuth();
@@ -83,6 +85,7 @@ export default function Message() {
       msg.chatId === chatId
     );
     
+    
     console.log("Filtered messages:", filtered.length, "from total:", messageData.messages.length);
     console.log("Looking for chatType:", choice.activeType, "chatId:", chatId);
     
@@ -145,6 +148,30 @@ export default function Message() {
       );
       
       console.log("Message sent successfully!");
+      
+      try {
+        const recipientResult = await db.queryOnce({
+          profiles: {
+            $: {
+              where: { username: otherUsername }
+            }
+          }
+        });
+        
+        const recipientProfile = recipientResult.data?.profiles?.[0];
+        
+        if (recipientProfile?.pushToken && recipientProfile?.notificationsEnabled) {
+          await pushNotificationService.sendMessageNotification(
+            recipientProfile.pushToken,
+            userProfile.username,
+            messageText,
+            choice.activeType as 'relationship' | 'friendship' | 'connection'
+          );
+          console.log("Push notification sent to:", otherUsername);
+        }
+      } catch (notifError) {
+        console.error("Error sending push notification:", notifError);
+      }
     } catch (error) {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message");
@@ -195,9 +222,16 @@ export default function Message() {
               <Text className="text-white text-lg font-bold">‹</Text>
             </TouchableOpacity>
             <View className="flex-1 flex-row items-center">
-              <Text className="text-3xl mr-3">
-                {choice.activeEmoji || "💕"}
-              </Text>
+              {activeChat && choice?.activeType === "friendship" && (activeChat as any).photo ? (
+                <Image
+                  source={{ uri: (activeChat as any).photo }}
+                  style={{ width: 40, height: 40, borderRadius: 20, marginRight: 12 }}
+                />
+              ) : (
+                <Text className="text-3xl mr-3">
+                  {choice.activeEmoji || "💕"}
+                </Text>
+              )}
               <Text className="text-3xl text-white font-bold">
                 {choice.activeName}
               </Text>
