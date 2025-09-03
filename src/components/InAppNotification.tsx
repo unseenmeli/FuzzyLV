@@ -53,7 +53,7 @@ const InAppNotification: React.FC<InAppNotificationProps> = ({
 
   const handlePress = () => {
     dismissNotification();
-    
+
     if (data?.type === 'message') {
       if (data.chatType === 'relationship') {
         router.push({

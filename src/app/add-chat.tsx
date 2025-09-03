@@ -17,14 +17,14 @@ export default function AddChat() {
   const [selectedConnection, setSelectedConnection] = useState<any>(null);
   const [chatType, setChatType] = useState<"relationship" | "friendship" | "group">("friendship");
   const [loading, setLoading] = useState(false);
-  
+
   const { data: profileData } = db.useQuery(
     user ? {
       profiles: { $: { where: { "owner.id": user.id } } }
     } : {}
   );
   const myProfile = profileData?.profiles?.[0];
-  
+
   const { data: existingData } = db.useQuery(
     user ? {
       relationships: { $: { where: { "owner.id": user.id } } },
@@ -34,7 +34,25 @@ export default function AddChat() {
   const hasRelationship = (existingData?.relationships || []).length > 0;
   const relationships = existingData?.relationships || [];
   const friendships = existingData?.friendships || [];
-  
+
+  const { data: allRelationshipsData } = db.useQuery(
+    user ? {
+      relationships: {}
+    } : {}
+  );
+  const allRelationships = allRelationshipsData?.relationships || [];
+
+  const getUsersWithRelationships = () => {
+    const usersWithRelationships = new Set<string>();
+    allRelationships.forEach(rel => {
+      if (rel.partnerUsername) usersWithRelationships.add(rel.partnerUsername);
+      if (rel.owner?.username) usersWithRelationships.add(rel.owner.username);
+    });
+    return usersWithRelationships;
+  };
+
+  const usersWithRelationships = getUsersWithRelationships();
+
   const { data: connectionData } = db.useQuery(
     myProfile ? {
       connections: {
@@ -49,42 +67,47 @@ export default function AddChat() {
       },
     } : {}
   );
-  
+
   const allConnections = connectionData?.connections || [];
   const connections = allConnections.filter(conn => {
-    const otherUsername = conn.senderUsername === myProfile?.username 
-      ? conn.receiverUsername 
+    const otherUsername = conn.senderUsername === myProfile?.username
+      ? conn.receiverUsername
       : conn.senderUsername;
-    
+
     const hasExistingRelationship = relationships.some(rel => rel.partnerUsername === otherUsername);
     const hasExistingFriendship = friendships.some(friend => friend.friendUsername === otherUsername);
-    
+
     return !hasExistingRelationship && !hasExistingFriendship;
   });
-  
+
   const theme = themes[chatType];
-  
+
   const handleInvite = async () => {
     if (!selectedConnection || !user || !myProfile) {
       Alert.alert("Error", "Please select a connection");
       return;
     }
-    
-    const targetUsername = selectedConnection.senderUsername === myProfile.username 
-      ? selectedConnection.receiverUsername 
+
+    const targetUsername = selectedConnection.senderUsername === myProfile.username
+      ? selectedConnection.receiverUsername
       : selectedConnection.senderUsername;
-    
+
     if (chatType === "relationship") {
       if (hasRelationship) {
         Alert.alert("Already in Relationship", "You already are in a relationship.");
         return;
       }
+
+      if (usersWithRelationships.has(targetUsername)) {
+        Alert.alert("Cannot Send Invitation", `${targetUsername} is already in a relationship.`);
+        return;
+      }
     }
-    
+
     setLoading(true);
     try {
       const inviteId = id();
-      
+
       const invitationData: any = {
         type: chatType,
         status: "pending",
@@ -103,11 +126,11 @@ export default function AddChat() {
       await db.transact(
         db.tx.invitations[inviteId]
           .update(invitationData)
-          .link({ 
+          .link({
             sender: user.id,
           })
       );
-      
+
       try {
         const recipientResult = await db.queryOnce({
           profiles: {
@@ -116,9 +139,9 @@ export default function AddChat() {
             }
           }
         });
-        
+
         const recipientProfile = recipientResult.data?.profiles?.[0];
-        
+
         if (recipientProfile?.pushToken && recipientProfile?.notificationsEnabled) {
           if (chatType === "relationship" || chatType === "friendship") {
             await pushNotificationService.sendInvitationNotification(
@@ -132,9 +155,9 @@ export default function AddChat() {
       } catch (notifError) {
         console.error("Error sending invitation notification:", notifError);
       }
-      
+
       Alert.alert(
-        "Invitation Sent!", 
+        "Invitation Sent!",
         `Invitation sent to ${targetUsername}`,
         [{ text: "OK", onPress: () => router.back() }]
       );
@@ -150,7 +173,7 @@ export default function AddChat() {
     return (
       <View className="flex-1">
         <GradientBackground colors={theme.gradient} />
-        
+
         <View
           style={{
             backgroundColor: theme.header,
@@ -177,7 +200,7 @@ export default function AddChat() {
             </View>
           </View>
         </View>
-        
+
         <View className="flex-1 justify-center items-center px-8">
           <Text className="text-white text-xl text-center mb-4">No Connections Yet</Text>
           <Text className="text-white/60 text-center mb-6">
@@ -237,25 +260,45 @@ export default function AddChat() {
           <View className="flex-row justify-between mb-6">
             <TouchableOpacity
               onPress={() => {
-                if (!hasRelationship) {
-                  setChatType("relationship");
-                } else {
+                if (hasRelationship) {
                   Alert.alert("Relationship Exists", "You already have a relationship");
+                  return;
                 }
+
+                if (selectedConnection) {
+                  const targetUsername = selectedConnection.senderUsername === myProfile?.username
+                    ? selectedConnection.receiverUsername
+                    : selectedConnection.senderUsername;
+
+                  if (usersWithRelationships.has(targetUsername)) {
+                    Alert.alert("Cannot Select", `${targetUsername} is already in a relationship`);
+                    return;
+                  }
+                }
+
+                setChatType("relationship");
               }}
               style={{
                 backgroundColor:
                   chatType === "relationship" ? theme.card : "rgba(255,255,255,0.05)",
                 borderColor:
                   chatType === "relationship" ? theme.cardBorder : "rgba(255,255,255,0.1)",
-                opacity: hasRelationship ? 0.5 : 1,
+                opacity: (hasRelationship || (selectedConnection && usersWithRelationships.has(
+                  selectedConnection.senderUsername === myProfile?.username
+                    ? selectedConnection.receiverUsername
+                    : selectedConnection.senderUsername
+                ))) ? 0.5 : 1,
               }}
               className="flex-1 mx-1 py-3 rounded-xl border"
-              disabled={hasRelationship}
+              disabled={hasRelationship || (selectedConnection && usersWithRelationships.has(
+                selectedConnection.senderUsername === myProfile?.username
+                  ? selectedConnection.receiverUsername
+                  : selectedConnection.senderUsername
+              ))}
             >
               <Text className="text-white text-center">Relationship</Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
               onPress={() => setChatType("friendship")}
               style={{
@@ -268,7 +311,7 @@ export default function AddChat() {
             >
               <Text className="text-white text-center">Friendship</Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
               onPress={() => setChatType("group")}
               style={{
@@ -303,15 +346,22 @@ export default function AddChat() {
               </View>
             ) : (
               connections.map((conn) => {
-              const displayName = conn.senderUsername === myProfile?.username 
-                ? conn.receiverUsername 
+              const displayName = conn.senderUsername === myProfile?.username
+                ? conn.receiverUsername
                 : conn.senderUsername;
               const isSelected = selectedConnection?.id === conn.id;
-              
+              const userHasRelationship = usersWithRelationships.has(displayName);
+
               return (
                 <TouchableOpacity
                   key={conn.id}
-                  onPress={() => setSelectedConnection(conn)}
+                  onPress={() => {
+                    setSelectedConnection(conn);
+
+                    if (chatType === "relationship" && userHasRelationship) {
+                      setChatType("friendship");
+                    }
+                  }}
                   style={{
                     backgroundColor: isSelected ? theme.innerCard : "transparent",
                     borderColor: isSelected ? theme.innerCardBorder : "transparent",
@@ -327,7 +377,7 @@ export default function AddChat() {
                         {displayName}
                       </Text>
                       <Text className={`text-sm ${theme.textLight}`}>
-                        Connected
+                        {userHasRelationship ? "In a relationship 💕" : "Connected"}
                       </Text>
                     </View>
                   </View>

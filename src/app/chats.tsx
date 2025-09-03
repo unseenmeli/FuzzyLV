@@ -8,8 +8,10 @@ import {
   Modal,
   Alert,
   Image,
+  RefreshControl,
 } from "react-native";
 import { router } from "expo-router";
+import { BlurView } from "expo-blur";
 import { GradientBackground, themes } from "@/utils/shared";
 import db from "@/utils/db";
 import { id } from "@instantdb/react-native";
@@ -20,6 +22,9 @@ export default function Chats() {
   const [addConnectionModal, setAddConnectionModal] = useState(false);
   const [connectionCode, setConnectionCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [manageModal, setManageModal] = useState(false);
+  const [selectedManageItem, setSelectedManageItem] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const theme = themes.group;
 
@@ -122,6 +127,31 @@ export default function Chats() {
     acceptedSentInvites.forEach(async (invite) => {
       if (!invite) return;
       try {
+
+        if (invite.type === "relationship") {
+          const existingRel = relationships.find(
+            r => r.partnerUsername === invite.receiverUsername
+          );
+          if (existingRel) {
+
+            await db.transact([
+              db.tx.invitations[invite.id].update({ processedBySender: true })
+            ]);
+            return;
+          }
+        } else if (invite.type === "friendship") {
+          const existingFriend = friendships.find(
+            f => f.friendUsername === invite.receiverUsername
+          );
+          if (existingFriend) {
+
+            await db.transact([
+              db.tx.invitations[invite.id].update({ processedBySender: true })
+            ]);
+            return;
+          }
+        }
+
         const chatId = id();
         if (invite.type === "relationship") {
           await db.transact([
@@ -156,7 +186,7 @@ export default function Chats() {
         console.error("Error processing accepted invitation:", error);
       }
     });
-  }, [data?.invitations, user, userProfile]);
+  }, [data?.invitations, user, userProfile, relationships, friendships]);
 
   const handleAddConnection = async () => {
     const cleanCode = connectionCode.replace(/-/g, "");
@@ -227,6 +257,11 @@ export default function Chats() {
             senderUsername: userProfile.username,
             receiverUsername: targetProfile.username,
             createdAt: Date.now(),
+
+            senderPhoto: userProfile.photo || null,
+            senderEmoji: userProfile.emoji || "👤",
+            receiverPhoto: targetProfile.photo || null,
+            receiverEmoji: targetProfile.emoji || "👤",
           })
           .link({ sender: user.id })
       );
@@ -254,12 +289,25 @@ export default function Chats() {
     }
   };
 
-  const handleAcceptConnection = async (connectionId: string) => {
+  const handleAcceptConnection = async (connection: any) => {
+    if (!userProfile) return;
+
     try {
+
+      const { data: senderData } = await db.queryOnce({
+        profiles: { $: { where: { username: connection.senderUsername } } }
+      });
+      const senderProfile = senderData?.profiles?.[0];
+
       await db.transact(
-        db.tx.connections[connectionId].update({
+        db.tx.connections[connection.id].update({
           status: "accepted",
           acceptedAt: Date.now(),
+
+          senderPhoto: senderProfile?.photo || connection.senderPhoto || null,
+          senderEmoji: senderProfile?.emoji || connection.senderEmoji || "👤",
+          receiverPhoto: userProfile?.photo || connection.receiverPhoto || null,
+          receiverEmoji: userProfile?.emoji || connection.receiverEmoji || "👤",
         })
       );
     } catch (error) {
@@ -269,15 +317,60 @@ export default function Chats() {
   };
 
   const handleAcceptInvitation = async (invite: any) => {
-    if (!user) return;
+    if (!user || !userProfile) return;
 
     try {
+
+      if (invite.type === "connection") {
+
+        const existingFriendship = friendships.find(f => f.friendUsername === invite.senderUsername);
+        const existingRelationship = relationships.find(r => r.partnerUsername === invite.senderUsername);
+
+        if (existingFriendship) {
+          await db.transact(db.tx.friendships[existingFriendship.id].delete());
+        } else if (existingRelationship) {
+          await db.transact(db.tx.relationships[existingRelationship.id].delete());
+        }
+
+        await db.transact(
+          db.tx.invitations[invite.id].update({
+            status: "accepted",
+            respondedAt: Date.now(),
+          })
+        );
+        Alert.alert("Success", "Changed to connection");
+        return;
+      }
+
       if (invite.type === "relationship" && relationships.length > 0) {
         Alert.alert("Error", "You already have a relationship");
         return;
       }
 
+
+      const existingFriendship = friendships.find(f => f.friendUsername === invite.senderUsername);
+      const existingRelationship = relationships.find(r => r.partnerUsername === invite.senderUsername);
+
+      if (existingFriendship || existingRelationship) {
+
+        if (existingFriendship && invite.type === "relationship") {
+          await db.transact(db.tx.friendships[existingFriendship.id].delete());
+        } else if (existingRelationship && invite.type === "friendship") {
+          await db.transact(db.tx.relationships[existingRelationship.id].delete());
+        } else {
+          Alert.alert("Already Connected", `You already have a ${invite.type} with ${invite.senderUsername}`);
+          await db.transact(
+            db.tx.invitations[invite.id].update({
+              status: "accepted",
+              respondedAt: Date.now(),
+            })
+          );
+          return;
+        }
+      }
+
       const chatId = id();
+
       if (invite.type === "relationship") {
         await db.transact([
           db.tx.invitations[invite.id].update({
@@ -317,6 +410,223 @@ export default function Chats() {
     } catch (error) {
       console.error("Error accepting invitation:", error);
       Alert.alert("Error", "Failed to accept invitation");
+    }
+  };
+
+  const handleManageConnection = (item: any, type: string) => {
+    setSelectedManageItem({ ...item, currentType: type });
+    setManageModal(true);
+  };
+
+  const handleChangeType = async (newType: string) => {
+    if (!selectedManageItem || !user || !userProfile) return;
+
+    try {
+      const otherUsername = selectedManageItem.friendUsername ||
+                          selectedManageItem.partnerUsername ||
+                          selectedManageItem.name ||
+                          (selectedManageItem.senderUsername === userProfile.username
+                            ? selectedManageItem.receiverUsername
+                            : selectedManageItem.senderUsername);
+
+
+      if (selectedManageItem.currentType === "friendship") {
+        await db.transact(db.tx.friendships[selectedManageItem.id].delete());
+      } else if (selectedManageItem.currentType === "relationship") {
+        await db.transact(db.tx.relationships[selectedManageItem.id].delete());
+      } else if (selectedManageItem.currentType === "connection") {
+
+      }
+
+
+      const inviteId = id();
+      await db.transact(
+        db.tx.invitations[inviteId]
+          .update({
+            type: newType === "connection" ? "connection" : newType,
+            status: "pending",
+            senderUsername: userProfile.username,
+            receiverUsername: otherUsername,
+            message: `${userProfile.username} wants to change to ${newType}`,
+            createdAt: Date.now(),
+          })
+          .link({ sender: user.id })
+      );
+
+      Alert.alert("Success", `Invitation sent to change to ${newType}`);
+      setManageModal(false);
+      setSelectedManageItem(null);
+    } catch (error) {
+      console.error("Error changing type:", error);
+      Alert.alert("Error", "Failed to change connection type");
+    }
+  };
+
+  const handleRemoveConnection = async () => {
+    if (!selectedManageItem || !user || !userProfile) return;
+
+    try {
+      const otherUsername = selectedManageItem.friendUsername ||
+                          selectedManageItem.partnerUsername ||
+                          selectedManageItem.name ||
+                          (selectedManageItem.senderUsername === userProfile.username
+                            ? selectedManageItem.receiverUsername
+                            : selectedManageItem.senderUsername);
+
+
+      if (selectedManageItem.currentType === "friendship") {
+        await db.transact(db.tx.friendships[selectedManageItem.id].delete());
+      } else if (selectedManageItem.currentType === "relationship") {
+        await db.transact(db.tx.relationships[selectedManageItem.id].delete());
+      }
+
+
+      const { data: connectionData } = await db.queryOnce({
+        connections: {
+          $: {
+            where: {
+              and: [
+                { status: "accepted" },
+                {
+                  or: [
+                    {
+                      and: [
+                        { senderUsername: userProfile.username },
+                        { receiverUsername: otherUsername }
+                      ]
+                    },
+                    {
+                      and: [
+                        { senderUsername: otherUsername },
+                        { receiverUsername: userProfile.username }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      });
+
+
+      if (connectionData?.connections?.[0]) {
+        await db.transact(db.tx.connections[connectionData.connections[0].id].delete());
+      }
+
+
+      const { data: messagesData } = await db.queryOnce({
+        messages: {
+          $: {
+            where: {
+              or: [
+                {
+                  and: [
+                    { senderUsername: userProfile.username },
+                    { receiverUsername: otherUsername }
+                  ]
+                },
+                {
+                  and: [
+                    { senderUsername: otherUsername },
+                    { receiverUsername: userProfile.username }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      });
+
+
+      if (messagesData?.messages && messagesData.messages.length > 0) {
+        const deletions = messagesData.messages.map(msg =>
+          db.tx.messages[msg.id].delete()
+        );
+        await db.transact(deletions);
+      }
+
+      Alert.alert("Success", "Connection and all messages removed");
+      setManageModal(false);
+      setSelectedManageItem(null);
+    } catch (error) {
+      console.error("Error removing connection:", error);
+      Alert.alert("Error", "Failed to remove connection");
+    }
+  };
+
+  const cleanupDuplicates = async () => {
+    if (!user) return;
+
+    try {
+
+      const { data } = await db.queryOnce({
+        friendships: { $: { where: { "owner.id": user.id } } },
+        relationships: { $: { where: { "owner.id": user.id } } }
+      });
+
+      const allFriendships = data?.friendships || [];
+      const allRelationships = data?.relationships || [];
+
+
+      const friendshipGroups: { [key: string]: any[] } = {};
+      const relationshipGroups: { [key: string]: any[] } = {};
+
+      allFriendships.forEach(f => {
+        const key = f.friendUsername || 'unknown';
+        if (!friendshipGroups[key]) friendshipGroups[key] = [];
+        friendshipGroups[key].push(f);
+      });
+
+      allRelationships.forEach(r => {
+        const key = r.partnerUsername || 'unknown';
+        if (!relationshipGroups[key]) relationshipGroups[key] = [];
+        relationshipGroups[key].push(r);
+      });
+
+
+      const deletions = [];
+
+      Object.values(friendshipGroups).forEach(group => {
+        if (group.length > 1) {
+
+          for (let i = 1; i < group.length; i++) {
+            deletions.push(db.tx.friendships[group[i].id].delete());
+          }
+        }
+      });
+
+      Object.values(relationshipGroups).forEach(group => {
+        if (group.length > 1) {
+
+          for (let i = 1; i < group.length; i++) {
+            deletions.push(db.tx.relationships[group[i].id].delete());
+          }
+        }
+      });
+
+      if (deletions.length > 0) {
+        await db.transact(deletions);
+        Alert.alert("Cleanup Complete", `Removed ${deletions.length} duplicate entries`);
+      } else {
+        Alert.alert("No Duplicates", "No duplicate entries found");
+      }
+    } catch (error) {
+      console.error("Error cleaning up duplicates:", error);
+      Alert.alert("Error", "Failed to cleanup duplicates");
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+    } catch (error) {
+      console.error("Error refreshing:", error);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -360,7 +670,7 @@ export default function Chats() {
         );
       }
 
-      router.push("/");
+      router.replace("/");
     } catch (error) {
       console.error("Error selecting chat:", error);
     }
@@ -410,7 +720,17 @@ export default function Chats() {
         </View>
       </View>
 
-      <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        className="flex-1 px-4"
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="white"
+          />
+        }
+      >
         {pendingConnections.length > 0 && (
           <View className="w-full items-center my-6">
             <Text className="text-2xl font-bold p-2 text-white/90 mb-3">
@@ -444,7 +764,7 @@ export default function Chats() {
                   </View>
                   <View className="flex-row gap-2">
                     <TouchableOpacity
-                      onPress={() => handleAcceptConnection(conn.id)}
+                      onPress={() => handleAcceptConnection(conn)}
                       className="flex-1 bg-green-500/20 py-2 rounded-lg border border-green-500/50"
                     >
                       <Text className="text-green-400 text-center">Accept</Text>
@@ -554,6 +874,7 @@ export default function Chats() {
                       rel.emoji || "💕"
                     )
                   }
+                  onLongPress={() => handleManageConnection(rel, "relationship")}
                 >
                   <View className="flex-row items-center">
                     <Text className="text-3xl mr-3">{rel.emoji || "💕"}</Text>
@@ -600,6 +921,7 @@ export default function Chats() {
                       friend.emoji || "😊"
                     )
                   }
+                  onLongPress={() => handleManageConnection(friend, "friendship")}
                 >
                   <View className="flex-row items-center">
                     {friend.photo ? (
@@ -661,6 +983,7 @@ export default function Chats() {
                         "🔗"
                       )
                     }
+                    onLongPress={() => handleManageConnection({ ...conn, name: otherUsername }, "connection")}
                   >
                     <View className="flex-row items-center">
                       <Text className="text-3xl mr-3">🔗</Text>
@@ -690,15 +1013,16 @@ export default function Chats() {
         animationType="fade"
         onRequestClose={() => setAddConnectionModal(false)}
       >
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View
-            style={{ backgroundColor: theme.header }}
-            className="rounded-2xl p-6 w-80 border border-white/20"
-          >
-            <Text className="text-white text-xl font-bold mb-4">
-              Add Connection
-            </Text>
-            <Text className="text-white/80 mb-4">Enter friend's code</Text>
+        <BlurView intensity={80} tint="dark" className="flex-1">
+          <View className="flex-1 justify-center items-center bg-black/70">
+            <View
+              style={{ backgroundColor: theme.header }}
+              className="rounded-2xl p-6 w-80 border border-white/20"
+            >
+              <Text className="text-white text-xl font-bold mb-4">
+                Add Connection
+              </Text>
+              <Text className="text-white/80 mb-4">Enter friend's code</Text>
             <TextInput
               className="bg-white/10 text-white px-4 py-3 rounded-xl mb-4 text-center text-lg tracking-widest"
               placeholder="XXX-XXX"
@@ -730,6 +1054,149 @@ export default function Chats() {
             </View>
           </View>
         </View>
+        </BlurView>
+      </Modal>
+
+      <Modal
+        visible={manageModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setManageModal(false);
+          setSelectedManageItem(null);
+        }}
+      >
+        <BlurView intensity={50} className="flex-1" tint="dark">
+          <View className="flex-1 justify-center items-center bg-black/50">
+            <TouchableOpacity
+              className="absolute inset-0"
+              onPress={() => {
+                setManageModal(false);
+                setSelectedManageItem(null);
+              }}
+            />
+
+            <View className="w-11/12 max-w-sm">
+              
+              <View
+                style={{
+                  backgroundColor: theme.card,
+                  borderRadius: 20,
+                  borderWidth: 2,
+                  borderColor: theme.cardBorder,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.3,
+                  shadowRadius: 8,
+                  elevation: 8,
+                }}
+                className="p-5 mb-4"
+              >
+                <View className="flex-row items-center">
+                  {selectedManageItem?.photo ? (
+                    <Image
+                      source={{ uri: selectedManageItem.photo }}
+                      style={{ width: 50, height: 50, borderRadius: 25, marginRight: 15 }}
+                    />
+                  ) : (
+                    <Text className="text-4xl mr-4">
+                      {selectedManageItem?.emoji ||
+                       (selectedManageItem?.currentType === "relationship" ? "💕" :
+                        selectedManageItem?.currentType === "friendship" ? "😊" : "🔗")}
+                    </Text>
+                  )}
+                  <View className="flex-1">
+                    <Text className="text-white font-bold text-lg">
+                      {selectedManageItem?.name ||
+                       selectedManageItem?.friendUsername ||
+                       selectedManageItem?.partnerUsername ||
+                       (selectedManageItem?.senderUsername === userProfile?.username
+                         ? selectedManageItem?.receiverUsername
+                         : selectedManageItem?.senderUsername)}
+                    </Text>
+                    <Text className="text-white/80 text-base font-medium">
+                      {selectedManageItem?.currentType === "relationship" ? "💕 In a relationship" :
+                       selectedManageItem?.currentType === "friendship" ? "😊 Friend" :
+                       "🔗 Connected"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              
+              <View
+                style={{
+                  backgroundColor: theme.header,
+                  borderRadius: 16,
+                  borderWidth: 1,
+                  borderColor: theme.headerBorder,
+                }}
+                className="p-4"
+              >
+                {selectedManageItem?.currentType !== "relationship" && (
+                  <TouchableOpacity
+                    onPress={() => handleChangeType("relationship")}
+                    className="bg-white/5 p-4 rounded-xl mb-2 border border-pink-500"
+                  >
+                    <Text className="text-pink-400 text-center font-semibold">
+                      💕 Change to Relationship
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {selectedManageItem?.currentType !== "friendship" && (
+                  <TouchableOpacity
+                    onPress={() => handleChangeType("friendship")}
+                    className="bg-white/5 p-4 rounded-xl mb-2 border border-blue-500"
+                  >
+                    <Text className="text-blue-400 text-center font-semibold">
+                      😊 Change to Friendship
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {selectedManageItem?.currentType !== "connection" && (
+                  <TouchableOpacity
+                    onPress={() => handleChangeType("connection")}
+                    className="bg-white/5 p-4 rounded-xl mb-2 border border-gray-500"
+                  >
+                    <Text className="text-gray-400 text-center font-semibold">
+                      🔗 Change to Connection
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  onPress={() => {
+                    Alert.alert(
+                      "Remove Connection",
+                      `Are you sure you want to remove ${selectedManageItem?.name || selectedManageItem?.friendUsername || selectedManageItem?.partnerUsername || "this connection"}?\n\nYour messages and shared content will be removed from this device.`,
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Remove", style: "destructive", onPress: handleRemoveConnection }
+                      ]
+                    );
+                  }}
+                  className="bg-white/5 p-4 rounded-xl mb-2 border border-red-500"
+                >
+                  <Text className="text-red-400 text-center font-semibold">
+                    🗑️ Remove Connection
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => {
+                    setManageModal(false);
+                    setSelectedManageItem(null);
+                  }}
+                  className="p-4 rounded-xl bg-white/5 border border-white/20"
+                >
+                  <Text className="text-white/60 text-center">Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+      </BlurView>
       </Modal>
     </View>
   );

@@ -26,7 +26,7 @@ class PushNotificationService {
       });
 
       const result = await response.json();
-      
+
       if (result.success) {
         console.log('Push notification sent successfully');
         return true;
@@ -80,7 +80,7 @@ class PushNotificationService {
   ) {
     const emoji = invitationType === 'relationship' ? '💕' : '💙';
     const typeText = invitationType === 'relationship' ? 'relationship' : 'friendship';
-    
+
     return this.sendNotification({
       token: recipientToken,
       title: `${emoji} ${invitationType === 'relationship' ? 'Relationship' : 'Friendship'} Invitation`,

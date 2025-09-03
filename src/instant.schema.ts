@@ -8,6 +8,8 @@ const _schema = i.schema({
     }),
     profiles: i.entity({
       username: i.string().unique().indexed(),
+      nickname: i.string().optional(),
+      lastUsernameChange: i.number().optional(),
       friendCode: i.string().unique().indexed(),
       photo: i.string().optional(),
       emoji: i.string().optional(),
@@ -21,6 +23,10 @@ const _schema = i.schema({
       receiverUsername: i.string(),
       createdAt: i.number(),
       acceptedAt: i.number().optional(),
+      senderPhoto: i.string().optional(),
+      senderEmoji: i.string().optional(),
+      receiverPhoto: i.string().optional(),
+      receiverEmoji: i.string().optional(),
     }),
     invitations: i.entity({
       type: i.string(),
@@ -85,6 +91,9 @@ const _schema = i.schema({
       groupId: i.string().optional(),
       createdAt: i.number(),
       isRead: i.boolean().optional(),
+      reactions: i.json().optional(),
+      replyTo: i.json().optional(),
+      image: i.string().optional(),
     }),
   },
   links: {

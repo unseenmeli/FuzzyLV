@@ -7,6 +7,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from "react-native";
 import { GradientBackground, themes } from "@/utils/shared";
 import db from "@/utils/db";
@@ -46,14 +48,14 @@ export default function UsernameSetup({ user }: { user: any }) {
     }
 
     setLoading(true);
-    
+
     try {
       let friendCode = generateFriendCode();
-      
+
       const { data } = await db.queryOnce({
         profiles: { $: { where: { friendCode } } }
       });
-      
+
       while (data?.profiles?.length > 0) {
         friendCode = generateFriendCode();
         const check = await db.queryOnce({
@@ -64,7 +66,7 @@ export default function UsernameSetup({ user }: { user: any }) {
 
       const { id } = await import("@instantdb/react-native");
       const profileId = id();
-      
+
       await db.transact(
         db.tx.profiles[profileId]
           .update({
@@ -74,7 +76,7 @@ export default function UsernameSetup({ user }: { user: any }) {
           })
           .link({ owner: user.id })
       );
-      
+
     } catch (error: any) {
       if (error.message?.includes('unique')) {
         Alert.alert("Error", "This username is already taken");
@@ -88,10 +90,11 @@ export default function UsernameSetup({ user }: { user: any }) {
   };
 
   return (
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
     <View className="flex-1">
       <GradientBackground colors={themes.relationship.gradient} />
-      
-      <KeyboardAvoidingView 
+
+      <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1 justify-center px-8"
       >
@@ -102,7 +105,7 @@ export default function UsernameSetup({ user }: { user: any }) {
           <Text className="text-white/80 text-center mb-8">
             Choose your username
           </Text>
-          
+
           <TextInput
             className="bg-white/10 text-white px-4 py-4 rounded-xl mb-2 text-lg"
             placeholder="Enter username"
@@ -113,11 +116,11 @@ export default function UsernameSetup({ user }: { user: any }) {
             autoCorrect={false}
             maxLength={20}
           />
-          
+
           <Text className="text-white/60 text-sm mb-6 px-2">
             3-20 characters, letters, numbers, and underscores only
           </Text>
-          
+
           <TouchableOpacity
             className={`py-4 rounded-xl ${loading ? 'bg-pink-500/50' : 'bg-pink-500'}`}
             onPress={handleSetUsername}
@@ -130,5 +133,6 @@ export default function UsernameSetup({ user }: { user: any }) {
         </View>
       </KeyboardAvoidingView>
     </View>
+    </TouchableWithoutFeedback>
   );
 }

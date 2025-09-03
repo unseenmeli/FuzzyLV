@@ -6,6 +6,8 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from "react-native";
 import { GradientBackground, themes } from "@/utils/shared";
 import db from "@/utils/db";
@@ -27,10 +29,11 @@ export default function Login() {
   };
 
   return (
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
     <View className="flex-1">
       <GradientBackground colors={themes.relationship.gradient} />
-      
-      <KeyboardAvoidingView 
+
+      <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         className="flex-1 justify-center px-8"
       >
@@ -42,7 +45,7 @@ export default function Login() {
             <Text className="text-white/80 text-center mb-8">
               Sign in with your email
             </Text>
-            
+
             <TextInput
               className="bg-white/10 text-white px-4 py-4 rounded-xl mb-4 text-lg"
               style={{ lineHeight: 22 }}
@@ -56,7 +59,7 @@ export default function Login() {
               autoComplete="email"
               textContentType="emailAddress"
             />
-            
+
             <TouchableOpacity
               className="bg-pink-500 py-4 rounded-xl"
               onPress={handleSendCode}
@@ -74,7 +77,7 @@ export default function Login() {
             <Text className="text-white/80 text-center mb-8">
               We sent a code to {sentEmail}
             </Text>
-            
+
             <TextInput
               className="bg-white/10 text-white px-4 py-4 rounded-xl mb-4 text-lg text-center"
               style={{ lineHeight: 22 }}
@@ -87,7 +90,7 @@ export default function Login() {
               autoCorrect={false}
               autoCapitalize="none"
             />
-            
+
             <TouchableOpacity
               className="bg-pink-500 py-4 rounded-xl mb-4"
               onPress={handleVerifyCode}
@@ -96,7 +99,7 @@ export default function Login() {
                 Verify Code
               </Text>
             </TouchableOpacity>
-            
+
             <TouchableOpacity
               onPress={() => {
                 setSentEmail("");
@@ -111,5 +114,6 @@ export default function Login() {
         )}
       </KeyboardAvoidingView>
     </View>
+    </TouchableWithoutFeedback>
   );
 }

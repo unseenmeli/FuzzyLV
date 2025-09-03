@@ -22,7 +22,7 @@ export const usePushNotifications = (): PushNotificationsState => {
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const [notification, setNotification] = useState<Notifications.Notification | null>(null);
   const [error, setError] = useState<Error | null>(null);
-  
+
   const notificationListener = useRef<Notifications.Subscription>();
   const responseListener = useRef<Notifications.Subscription>();
 
@@ -70,12 +70,12 @@ async function registerForPushNotificationsAsync(): Promise<string | null> {
 
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;
-  
+
   if (existingStatus !== 'granted') {
     const { status } = await Notifications.requestPermissionsAsync();
     finalStatus = status;
   }
-  
+
   if (finalStatus !== 'granted') {
     console.log('Failed to get push token for push notification!');
     return null;
@@ -83,7 +83,7 @@ async function registerForPushNotificationsAsync(): Promise<string | null> {
 
   try {
     const projectId = Constants?.expoConfig?.extra?.eas?.projectId ?? Constants?.easConfig?.projectId;
-    
+
     if (!projectId) {
       console.log('Project ID not found - this is normal in development');
       return null;

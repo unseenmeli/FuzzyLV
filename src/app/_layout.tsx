@@ -18,7 +18,7 @@ export default function Layout() {
     notificationListener.current = Notifications.addNotificationReceivedListener(
       (notification) => {
         const { title, body, data } = notification.request.content;
-        
+
         if (title && body) {
           setNotification({
             title,
@@ -45,6 +45,8 @@ export default function Layout() {
       >
         <Stack.Screen name="index" />
         <Stack.Screen name="message" />
+        <Stack.Screen name="spicy-message" />
+        <Stack.Screen name="finger-tap" />
         <Stack.Screen name="chats" />
         <Stack.Screen name="profile" />
         <Stack.Screen name="add-chat" />
