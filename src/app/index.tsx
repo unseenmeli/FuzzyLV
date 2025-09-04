@@ -237,25 +237,40 @@ export default function index() {
           {choice ? (
             <View className="flex-row items-center w-full">
               <TouchableOpacity
-                onPress={() => setShowPhotoOptions(true)}
+                onPress={() => choice?.activeType !== "connection" && setShowPhotoOptions(true)}
                 className={`w-24 h-24 rounded-full ml-4 border-4 ${theme.borderAccent}`}
                 style={{ overflow: "visible" }}
+                disabled={choice?.activeType === "connection"}
               >
-                {(activeChat as any)?.photo ? (
-                  <Image
-                    source={{ uri: (activeChat as any).photo }}
-                    style={{ width: "100%", height: "100%", borderRadius: 48 }}
-                  />
-                ) : (
-                  <View className="w-full h-full bg-white/10 items-center justify-center rounded-full">
-                    <Text
-                      className="text-5xl"
-                      style={{ includeFontPadding: false, lineHeight: 60 }}
-                    >
-                      {(activeChat as any)?.partnerMood || (activeChat as any)?.friendMood || (activeChat as any)?.emoji || "💕"}
-                    </Text>
-                  </View>
-                )}
+                {(() => {
+                  const photo = choice?.activeType === "connection" 
+                    ? (activeChat as any)?.senderUsername === userProfile?.username
+                      ? (activeChat as any)?.receiverPhoto
+                      : (activeChat as any)?.senderPhoto
+                    : (activeChat as any)?.photo;
+                  
+                  const emoji = choice?.activeType === "connection"
+                    ? (activeChat as any)?.senderUsername === userProfile?.username
+                      ? (activeChat as any)?.receiverEmoji
+                      : (activeChat as any)?.senderEmoji
+                    : (activeChat as any)?.partnerMood || (activeChat as any)?.friendMood || (activeChat as any)?.emoji || "💕";
+                    
+                  return photo ? (
+                    <Image
+                      source={{ uri: photo }}
+                      style={{ width: "100%", height: "100%", borderRadius: 48 }}
+                    />
+                  ) : (
+                    <View className="w-full h-full bg-white/10 items-center justify-center rounded-full">
+                      <Text
+                        className="text-5xl"
+                        style={{ includeFontPadding: false, lineHeight: 60 }}
+                      >
+                        {emoji || "💕"}
+                      </Text>
+                    </View>
+                  );
+                })()}
               </TouchableOpacity>
               <View className="flex-1 items-center pr-24">
                 <Text className="text-4xl text-white font-bold">
@@ -348,7 +363,7 @@ export default function index() {
                 backgroundColor: theme.innerCard,
                 borderColor: theme.innerCardBorder,
               }}
-              className="flex-row items-center justify-between rounded-xl p-4 border"
+              className="flex-row items-center justify-between rounded-xl p-4 border mb-4"
               onPress={() => router.push("/notes")}
             >
               <View className="flex-row items-center">
@@ -361,6 +376,25 @@ export default function index() {
               </View>
               <Text className={`${theme.textAccent} text-2xl`}>›</Text>
             </TouchableOpacity>
+
+            {choice?.activeType === "relationship" && (
+              <TouchableOpacity
+                style={{
+                  backgroundColor: theme.innerCard,
+                  borderColor: theme.innerCardBorder,
+                }}
+                className="flex-row items-center justify-between rounded-xl p-4 border"
+                onPress={() => router.push("/finger-tap")}
+              >
+                <View className="flex-row items-center">
+                  <Text className="text-4xl mr-4">👆</Text>
+                  <Text className={`font-semibold text-lg ${theme.textMedium}`}>
+                    Finger Tap
+                  </Text>
+                </View>
+                <Text className={`${theme.textAccent} text-2xl`}>›</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
         )}
@@ -399,6 +433,7 @@ export default function index() {
               <TouchableOpacity
                 style={{ backgroundColor: "rgba(255,255,255,0.05)" }}
                 className="flex-row items-center justify-between rounded-xl p-4 border border-pink-200/30"
+                onPress={() => router.push("/spicy-message")}
               >
                 <View className="flex-row items-center">
                   <View className="bg-red-500/80 rounded-md px-2 py-0.5 mr-3">
