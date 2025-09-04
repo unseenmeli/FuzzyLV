@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -14,12 +14,20 @@ import { GradientBackground, themes } from "@/utils/shared";
 import db from "@/utils/db";
 import { id } from "@instantdb/react-native";
 import pushNotificationService from "@/services/pushNotificationService";
+import { BlurView } from "expo-blur";
 
 export default function Chats() {
   const { user } = db.useAuth();
   const [addConnectionModal, setAddConnectionModal] = useState(false);
   const [connectionCode, setConnectionCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [longPressModal, setLongPressModal] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<{
+    type: string;
+    id: string;
+    name: string;
+    username?: string;
+  } | null>(null);
 
   const theme = themes.group;
 
@@ -86,8 +94,36 @@ export default function Chats() {
     (i) =>
       i.status === "pending" && i.receiverUsername === userProfile?.username
   );
-  const relationships = data?.relationships || [];
-  const friendships = data?.friendships || [];
+  const sentInvitations = (data?.invitations || []).filter(
+    (i) =>
+      i.status === "pending" && i.senderUsername === userProfile?.username
+  );
+  // Remove duplicates based on partner username or name
+  const relationships = React.useMemo(() => {
+    const rels = data?.relationships || [];
+    const seen = new Set();
+    return rels.filter((rel: any) => {
+      const key = rel.partnerUsername || rel.name;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }, [data?.relationships]);
+  
+  const friendships = React.useMemo(() => {
+    const friends = data?.friendships || [];
+    const seen = new Set();
+    return friends.filter((friend: any) => {
+      const key = friend.friendUsername || friend.name;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }, [data?.friendships]);
 
   const connections = (data?.connections || []).filter((c) => {
     if (c.status !== "accepted") return false;
@@ -269,16 +305,26 @@ export default function Chats() {
   };
 
   const handleAcceptInvitation = async (invite: any) => {
-    if (!user) return;
+    if (!user || !userProfile) return;
 
     try {
-      if (invite.type === "relationship" && relationships.length > 0) {
-        Alert.alert("Error", "You already have a relationship");
+      // Check if already accepted this invitation
+      if (invite.status === "accepted") {
+        Alert.alert("Info", "This invitation was already accepted");
         return;
       }
 
-      const chatId = id();
       if (invite.type === "relationship") {
+        // Check if relationship already exists with this person
+        const existingRel = relationships.find(
+          (r: any) => r.partnerUsername === invite.senderUsername
+        );
+        if (existingRel) {
+          Alert.alert("Error", "You already have a relationship with this person");
+          return;
+        }
+
+        const chatId = id();
         await db.transact([
           db.tx.invitations[invite.id].update({
             status: "accepted",
@@ -295,6 +341,16 @@ export default function Chats() {
             .link({ owner: user.id }),
         ]);
       } else if (invite.type === "friendship") {
+        // Check if friendship already exists with this person
+        const existingFriend = friendships.find(
+          (f: any) => f.friendUsername === invite.senderUsername
+        );
+        if (existingFriend) {
+          Alert.alert("Error", "You already have a friendship with this person");
+          return;
+        }
+
+        const chatId = id();
         await db.transact([
           db.tx.invitations[invite.id].update({
             status: "accepted",
@@ -318,6 +374,115 @@ export default function Chats() {
       console.error("Error accepting invitation:", error);
       Alert.alert("Error", "Failed to accept invitation");
     }
+  };
+
+  const handleRemoveFromType = async () => {
+    if (!selectedItem || !user || !userProfile) return;
+    
+    try {
+      if (selectedItem.type === "relationship") {
+        const allRelationships = await db.queryOnce({
+          relationships: {}
+        });
+        
+        const toDelete = allRelationships.data?.relationships?.filter((r: any) => {
+          const involves = 
+            (r.partnerUsername === selectedItem.username && r.name === selectedItem.username) ||
+            (r.partnerUsername === userProfile.username && r.name === userProfile.username) ||
+            (r.name === selectedItem.name && r.partnerUsername === selectedItem.username) ||
+            (r.name === userProfile.username && r.partnerUsername === userProfile.username);
+          return involves;
+        }) || [];
+        
+        if (toDelete.length > 0) {
+          await Promise.all(
+            toDelete.map((rel: any) => 
+              db.transact([db.tx.relationships[rel.id].delete()])
+            )
+          );
+        }
+        
+        Alert.alert("Success", `Removed ${selectedItem.name} from relationships`);
+      } else if (selectedItem.type === "friendship") {
+        const allFriendships = await db.queryOnce({
+          friendships: {}
+        });
+        
+        const toDelete = allFriendships.data?.friendships?.filter((f: any) => {
+          const involves = 
+            (f.friendUsername === selectedItem.username && f.name === selectedItem.username) ||
+            (f.friendUsername === userProfile.username && f.name === userProfile.username) ||
+            (f.name === selectedItem.name && f.friendUsername === selectedItem.username) ||
+            (f.name === userProfile.username && f.friendUsername === userProfile.username);
+          return involves;
+        }) || [];
+        
+        if (toDelete.length > 0) {
+          await Promise.all(
+            toDelete.map((friend: any) => 
+              db.transact([db.tx.friendships[friend.id].delete()])
+            )
+          );
+        }
+        
+        Alert.alert("Success", `Removed ${selectedItem.name} from friends`);
+      }
+      setLongPressModal(false);
+      setSelectedItem(null);
+    } catch (error) {
+      console.error("Error removing from type:", error);
+      Alert.alert("Error", "Failed to remove");
+    }
+  };
+
+  const handleRemoveConnection = async () => {
+    if (!selectedItem || !userProfile) return;
+    
+    try {
+      // Find the connection record
+      let connectionToDelete = null;
+      
+      if (selectedItem.type === "connection") {
+        connectionToDelete = connections.find(c => c.id === selectedItem.id);
+      } else if (selectedItem.username) {
+        // For relationships/friendships, find the underlying connection
+        connectionToDelete = (data?.connections || []).find((c: any) => 
+          (c.senderUsername === userProfile.username && c.receiverUsername === selectedItem.username) ||
+          (c.receiverUsername === userProfile.username && c.senderUsername === selectedItem.username)
+        );
+      }
+      
+      if (connectionToDelete) {
+        // Delete the connection (this will affect both users)
+        await db.transact([
+          db.tx.connections[connectionToDelete.id].delete()
+        ]);
+        
+        // If it's a relationship or friendship, also delete that
+        if (selectedItem.type === "relationship") {
+          await db.transact([
+            db.tx.relationships[selectedItem.id].delete()
+          ]);
+        } else if (selectedItem.type === "friendship") {
+          await db.transact([
+            db.tx.friendships[selectedItem.id].delete()
+          ]);
+        }
+        
+        Alert.alert("Success", "Connection removed");
+      }
+      
+      setLongPressModal(false);
+      setSelectedItem(null);
+    } catch (error) {
+      console.error("Error removing connection:", error);
+      Alert.alert("Error", "Failed to remove connection");
+    }
+  };
+
+  const handleLongPress = (type: string, id: string, name: string, username?: string) => {
+    setSelectedItem({ type, id, name, username });
+    setLongPressModal(true);
   };
 
   const handleSelectChat = async (
@@ -382,14 +547,14 @@ export default function Chats() {
         className="shadow-xl"
       >
         <View className="h-24">
-          <View className="flex-row items-center h-full px-4">
+          <View className="flex-row items-center justify-between h-full px-4">
             <TouchableOpacity
               onPress={() => router.back()}
-              className="bg-white/10 rounded-full w-10 h-10 items-center justify-center mr-4 border border-white/20"
+              className="bg-white/10 rounded-full w-10 h-10 items-center justify-center border border-white/20 z-10"
             >
               <Text className="text-white text-lg font-bold">‹</Text>
             </TouchableOpacity>
-            <Text className="text-3xl text-white font-bold flex-1 text-center">
+            <Text className="text-3xl text-white font-bold absolute left-0 right-0 text-center" pointerEvents="none">
               Chats
             </Text>
             <View className="flex-row items-center gap-2">
@@ -527,6 +692,55 @@ export default function Chats() {
           </View>
         )}
 
+        {sentInvitations.length > 0 && (
+          <View className="w-full items-center my-6">
+            <Text className="text-2xl font-bold p-2 text-white/90 mb-3">
+              Sent Invitations
+            </Text>
+            <View
+              style={{
+                backgroundColor: theme.card,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: theme.cardBorder,
+              }}
+              className="w-full p-5 shadow-xl"
+            >
+              {sentInvitations.map((invite) => (
+                <View
+                  key={invite.id}
+                  style={{ backgroundColor: theme.innerCard }}
+                  className="rounded-xl p-4 mb-2 border border-white/20"
+                >
+                  <View className="flex-row items-center justify-between">
+                    <View className="flex-row items-center flex-1">
+                      <Text className="text-3xl mr-3">
+                        {invite.type === "relationship" ? "💕" : "😊"}
+                      </Text>
+                      <View className="flex-1">
+                        <Text className="text-white font-semibold">
+                          Waiting for {invite.receiverUsername}
+                        </Text>
+                        <Text className="text-white/60 text-sm">
+                          {invite.type === "relationship" ? "Relationship" : "Friendship"} invitation sent
+                        </Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      onPress={async () => {
+                        await db.transact(db.tx.invitations[invite.id].delete());
+                      }}
+                      className="bg-red-500/20 px-3 py-1 rounded-lg border border-red-500/30"
+                    >
+                      <Text className="text-red-400 text-xs">Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
         {relationships.length > 0 && (
           <View className="w-full items-center my-6">
             <Text className="text-2xl font-bold p-2 text-white/90 mb-3">
@@ -553,6 +767,9 @@ export default function Chats() {
                       rel.name,
                       rel.emoji || "💕"
                     )
+                  }
+                  onLongPress={() => 
+                    handleLongPress("relationship", rel.id, rel.name, rel.partnerUsername)
                   }
                 >
                   <View className="flex-row items-center">
@@ -599,6 +816,9 @@ export default function Chats() {
                       friend.name,
                       friend.emoji || "😊"
                     )
+                  }
+                  onLongPress={() => 
+                    handleLongPress("friendship", friend.id, friend.name, friend.friendUsername)
                   }
                 >
                   <View className="flex-row items-center">
@@ -661,6 +881,9 @@ export default function Chats() {
                         "🔗"
                       )
                     }
+                    onLongPress={() => 
+                      handleLongPress("connection", conn.id, otherUsername)
+                    }
                   >
                     <View className="flex-row items-center">
                       <Text className="text-3xl mr-3">🔗</Text>
@@ -690,46 +913,129 @@ export default function Chats() {
         animationType="fade"
         onRequestClose={() => setAddConnectionModal(false)}
       >
-        <View className="flex-1 justify-center items-center bg-black/50">
-          <View
-            style={{ backgroundColor: theme.header }}
-            className="rounded-2xl p-6 w-80 border border-white/20"
-          >
-            <Text className="text-white text-xl font-bold mb-4">
-              Add Connection
-            </Text>
-            <Text className="text-white/80 mb-4">Enter friend's code</Text>
-            <TextInput
-              className="bg-white/10 text-white px-4 py-3 rounded-xl mb-4 text-center text-lg tracking-widest"
-              placeholder="XXX-XXX"
-              placeholderTextColor="rgba(255,255,255,0.3)"
-              value={connectionCode}
-              onChangeText={setConnectionCode}
-              maxLength={7}
-              autoCapitalize="characters"
-            />
-            <View className="flex-row gap-2">
-              <TouchableOpacity
-                onPress={() => {
-                  setConnectionCode("");
-                  setAddConnectionModal(false);
-                }}
-                className="flex-1 py-3 rounded-xl border border-white/20"
-              >
-                <Text className="text-white text-center">Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={handleAddConnection}
-                disabled={loading}
-                className="flex-1 bg-green-500 py-3 rounded-xl"
-              >
-                <Text className="text-white font-bold text-center">
-                  {loading ? "Sending..." : "Send Request"}
-                </Text>
-              </TouchableOpacity>
+        <BlurView intensity={80} tint="dark" style={{ flex: 1 }}>
+          <View className="flex-1 justify-center items-center">
+            <View
+              style={{ backgroundColor: theme.header }}
+              className="rounded-2xl p-6 w-80 border border-white/20"
+            >
+              <Text className="text-white text-xl font-bold mb-4">
+                Add Connection
+              </Text>
+              <Text className="text-white/80 mb-4">Enter friend's code</Text>
+              <TextInput
+                className="bg-white/10 text-white px-4 py-3 rounded-xl mb-4 text-center text-lg tracking-widest"
+                placeholder="XXX-XXX"
+                placeholderTextColor="rgba(255,255,255,0.3)"
+                value={connectionCode}
+                onChangeText={setConnectionCode}
+                maxLength={7}
+                autoCapitalize="characters"
+              />
+              <View className="flex-row gap-2">
+                <TouchableOpacity
+                  onPress={() => {
+                    setConnectionCode("");
+                    setAddConnectionModal(false);
+                  }}
+                  className="flex-1 py-3 rounded-xl border border-white/20"
+                >
+                  <Text className="text-white text-center">Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleAddConnection}
+                  disabled={loading}
+                  className="flex-1 bg-green-500 py-3 rounded-xl"
+                >
+                  <Text className="text-white font-bold text-center">
+                    {loading ? "Sending..." : "Send Request"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
+        </BlurView>
+      </Modal>
+
+      <Modal
+        visible={longPressModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setLongPressModal(false)}
+      >
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.5)" }}
+          activeOpacity={1}
+          onPress={() => setLongPressModal(false)}
+        >
+          <View className="flex-1 justify-end">
+            <TouchableOpacity activeOpacity={1}>
+              <View
+                style={{
+                  backgroundColor: theme.header,
+                  borderTopLeftRadius: 30,
+                  borderTopRightRadius: 30,
+                  borderWidth: 1,
+                  borderColor: theme.headerBorder,
+                }}
+                className="p-6"
+              >
+                <View className="flex-row justify-between items-center mb-4">
+                  <Text className="text-white text-xl font-bold">
+                    {selectedItem?.name}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setLongPressModal(false)}
+                    className="bg-white/10 rounded-full p-2"
+                  >
+                    <Text className="text-white text-lg">✕</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {selectedItem?.type !== "connection" && (
+                  <TouchableOpacity
+                    onPress={handleRemoveFromType}
+                    style={{
+                      backgroundColor: "rgba(239,68,68,0.1)",
+                      borderColor: "rgba(239,68,68,0.3)",
+                    }}
+                    className="py-4 rounded-xl border mb-3"
+                  >
+                    <Text className="text-red-400 text-center font-semibold text-lg">
+                      Remove from {selectedItem?.type === "relationship" ? "Relationships" : "Friends"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  onPress={handleRemoveConnection}
+                  style={{
+                    backgroundColor: "rgba(239,68,68,0.2)",
+                    borderColor: "rgba(239,68,68,0.4)",
+                  }}
+                  className="py-4 rounded-xl border mb-3"
+                >
+                  <Text className="text-red-500 text-center font-bold text-lg">
+                    Remove Connection
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={() => setLongPressModal(false)}
+                  style={{
+                    backgroundColor: "rgba(255,255,255,0.1)",
+                    borderColor: "rgba(255,255,255,0.2)",
+                  }}
+                  className="py-4 rounded-xl border"
+                >
+                  <Text className="text-white text-center font-semibold text-lg">
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
       </Modal>
     </View>
   );

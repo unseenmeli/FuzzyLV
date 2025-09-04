@@ -51,29 +51,17 @@ const InAppNotification: React.FC<InAppNotificationProps> = ({
     });
   };
 
-  const handlePress = () => {
+  const handlePress = async () => {
     dismissNotification();
     
-    if (data?.type === 'message') {
-      if (data.chatType === 'relationship') {
-        router.push({
-          pathname: '/message',
-          params: {
-            chatType: 'relationship',
-            partnerName: data.senderName,
-          },
-        });
-      } else if (data.chatType === 'friendship') {
-        router.push({
-          pathname: '/message',
-          params: {
-            chatType: 'friendship',
-            partnerName: data.senderName,
-          },
-        });
+    if (data?.type === 'message' || data?.chatType) {
+      if (data.chatType === 'relationship' || data.chatType === 'friendship') {
+        router.push('/message');
       } else if (data.chatType === 'connection') {
         router.push('/chats');
       }
+    } else if (data?.screen) {
+      router.push(data.screen);
     }
   };
 

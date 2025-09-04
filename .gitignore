@@ -38,3 +38,14 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+
+# Documentation (local notes)
+*.md
+
+# Audio files
+*.mp3
+
+# Vim swap files
+*.swp
+*.swo
+*~

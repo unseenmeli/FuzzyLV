@@ -10,6 +10,8 @@ import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import * as ImagePicker from "expo-image-picker";
 import { id } from "@instantdb/react-native";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import NavigationWrapper from "@/components/NavigationWrapper";
 
 const availableEmojis = [
   "😊", "😎", "🤓", "😇", "🤩", "😘", "🥰", "😍", "🤗", "🤝",
@@ -20,7 +22,24 @@ const availableEmojis = [
 ];
 
 export default function index() {
-  const { user, isLoading } = db.useAuth();
+  let user, isLoading;
+  
+  try {
+    const auth = db.useAuth();
+    user = auth.user;
+    isLoading = auth.isLoading;
+  } catch (error) {
+    console.warn("Navigation context not ready:", error);
+    // Return loading state while navigation initializes
+    return (
+      <View className="flex-1">
+        <GradientBackground colors={themes.relationship.gradient} />
+        <View className="flex-1 items-center justify-center">
+          <Text className="text-white text-xl">Loading...</Text>
+        </View>
+      </View>
+    );
+  }
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
 
@@ -348,7 +367,7 @@ export default function index() {
                 backgroundColor: theme.innerCard,
                 borderColor: theme.innerCardBorder,
               }}
-              className="flex-row items-center justify-between rounded-xl p-4 border"
+              className="flex-row items-center justify-between rounded-xl p-4 border mb-4"
               onPress={() => router.push("/notes")}
             >
               <View className="flex-row items-center">
@@ -361,6 +380,25 @@ export default function index() {
               </View>
               <Text className={`${theme.textAccent} text-2xl`}>›</Text>
             </TouchableOpacity>
+
+            {choice?.activeType === "relationship" && (
+              <TouchableOpacity
+                style={{
+                  backgroundColor: theme.innerCard,
+                  borderColor: theme.innerCardBorder,
+                }}
+                className="flex-row items-center justify-between rounded-xl p-4 border"
+                onPress={() => router.push("/finger-tap")}
+              >
+                <View className="flex-row items-center">
+                  <Text className="text-4xl mr-4">👆</Text>
+                  <Text className={`font-semibold text-lg ${theme.textMedium}`}>
+                    Finger Tap
+                  </Text>
+                </View>
+                <Text className={`${theme.textAccent} text-2xl`}>›</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
         )}
@@ -399,6 +437,7 @@ export default function index() {
               <TouchableOpacity
                 style={{ backgroundColor: "rgba(255,255,255,0.05)" }}
                 className="flex-row items-center justify-between rounded-xl p-4 border border-pink-200/30"
+                onPress={() => router.push("/spicy-message")}
               >
                 <View className="flex-row items-center">
                   <View className="bg-red-500/80 rounded-md px-2 py-0.5 mr-3">
@@ -433,7 +472,6 @@ export default function index() {
                 },
                 shadowOpacity: 0.3,
                 shadowRadius: 12,
-                elevation: 15,
               }}
             />
             <Text className={`text-3xl ${theme.text} font-bold mb-4`}>

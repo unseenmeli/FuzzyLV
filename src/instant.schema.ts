@@ -19,6 +19,10 @@ const _schema = i.schema({
       status: i.string(),
       senderUsername: i.string(),
       receiverUsername: i.string(),
+      senderPhoto: i.string().optional(),
+      senderEmoji: i.string().optional(),
+      receiverPhoto: i.string().optional(),
+      receiverEmoji: i.string().optional(),
       createdAt: i.number(),
       acceptedAt: i.number().optional(),
     }),
@@ -86,6 +90,12 @@ const _schema = i.schema({
       createdAt: i.number(),
       isRead: i.boolean().optional(),
     }),
+    fingerTaps: i.entity({
+      userId: i.string(),
+      chatId: i.string(),
+      path: i.string(),
+      createdAt: i.number().optional(),
+    }),
   },
   links: {
     userProfile: {
@@ -131,6 +141,10 @@ const _schema = i.schema({
     messageSender: {
       forward: { on: "messages", has: "one", label: "sender" },
       reverse: { on: "$users", has: "many", label: "sentMessages" },
+    },
+    fingerTapUser: {
+      forward: { on: "fingerTaps", has: "one", label: "user" },
+      reverse: { on: "$users", has: "many", label: "fingerTaps" },
     },
   },
 });

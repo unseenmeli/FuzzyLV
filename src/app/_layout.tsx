@@ -5,6 +5,7 @@ import { View } from "react-native";
 import * as Notifications from "expo-notifications";
 import db from "@/utils/db";
 import InAppNotification from "@/components/InAppNotification";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 export default function Layout() {
   const [notification, setNotification] = useState<{
@@ -49,6 +50,8 @@ export default function Layout() {
         <Stack.Screen name="profile" />
         <Stack.Screen name="add-chat" />
         <Stack.Screen name="notes" />
+        <Stack.Screen name="spicy-message" />
+        <Stack.Screen name="finger-tap" />
       </Stack>
       {notification && (
         <InAppNotification

@@ -1,4 +1,4 @@
-import { Text, TouchableOpacity, View, Switch, Modal, FlatList, Image, Alert } from "react-native";
+import { Text, TouchableOpacity, View, Switch, Modal, FlatList, Image, Alert, TextInput } from "react-native";
 import { GradientBackground, themes } from "@/utils/shared";
 import { router } from "expo-router";
 import db from "@/utils/db";
@@ -18,6 +18,8 @@ export default function Profile() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const [showUsernameModal, setShowUsernameModal] = useState(false);
+  const [newUsername, setNewUsername] = useState("");
   
   const { data: profileData } = db.useQuery(
     user ? { 
@@ -25,11 +27,28 @@ export default function Profile() {
         $: { 
           where: { "owner.id": user.id } 
         } 
-      } 
+      }
     } : {}
   );
   
   const userProfile = profileData?.profiles?.[0];
+  
+  const { data: connectionData } = db.useQuery(
+    userProfile?.username ? {
+      connections: {
+        $: {
+          where: {
+            or: [
+              { senderUsername: userProfile.username },
+              { receiverUsername: userProfile.username }
+            ]
+          }
+        }
+      }
+    } : {}
+  );
+  
+  const connections = connectionData?.connections || [];
   const theme = themes.friendship;
   
   useEffect(() => {
@@ -79,6 +98,25 @@ export default function Profile() {
             emoji: null
           })
         ]);
+        
+        for (const connection of connections) {
+          if (connection.senderUsername === userProfile.username) {
+            await db.transact([
+              db.tx.connections[connection.id].update({
+                senderPhoto: base64Image,
+                senderEmoji: null
+              })
+            ]);
+          } else if (connection.receiverUsername === userProfile.username) {
+            await db.transact([
+              db.tx.connections[connection.id].update({
+                receiverPhoto: base64Image,
+                receiverEmoji: null
+              })
+            ]);
+          }
+        }
+        
         setShowPhotoOptions(false);
       } catch (error) {
         console.error("Error updating profile photo:", error);
@@ -96,12 +134,120 @@ export default function Profile() {
             photo: null
           })
         ]);
+        
+        for (const connection of connections) {
+          if (connection.senderUsername === userProfile.username) {
+            await db.transact([
+              db.tx.connections[connection.id].update({
+                senderEmoji: emoji,
+                senderPhoto: null
+              })
+            ]);
+          } else if (connection.receiverUsername === userProfile.username) {
+            await db.transact([
+              db.tx.connections[connection.id].update({
+                receiverEmoji: emoji,
+                receiverPhoto: null
+              })
+            ]);
+          }
+        }
+        
         setShowEmojiPicker(false);
         setShowPhotoOptions(false);
       } catch (error) {
         console.error("Error updating profile emoji:", error);
         Alert.alert("Error", "Failed to update profile emoji");
       }
+    }
+  };
+
+  const handleUsernameUpdate = async () => {
+    if (!userProfile || !newUsername.trim()) {
+      Alert.alert("Error", "Please enter a valid username");
+      return;
+    }
+
+    if (newUsername.length < 3 || newUsername.length > 20) {
+      Alert.alert("Error", "Username must be between 3 and 20 characters");
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_]+$/.test(newUsername)) {
+      Alert.alert("Error", "Username can only contain letters, numbers, and underscores");
+      return;
+    }
+
+    try {
+      const existingProfiles = await db.queryOnce({
+        profiles: {
+          $: {
+            where: { username: newUsername }
+          }
+        }
+      });
+
+      if (existingProfiles.data?.profiles?.length > 0 && existingProfiles.data.profiles[0].id !== userProfile.id) {
+        Alert.alert("Error", "Username already taken");
+        return;
+      }
+
+      const oldUsername = userProfile.username;
+
+      await db.transact([
+        db.tx.profiles[userProfile.id].update({
+          username: newUsername
+        })
+      ]);
+
+      for (const connection of connections) {
+        if (connection.senderUsername === oldUsername) {
+          await db.transact([
+            db.tx.connections[connection.id].update({
+              senderUsername: newUsername
+            })
+          ]);
+        } else if (connection.receiverUsername === oldUsername) {
+          await db.transact([
+            db.tx.connections[connection.id].update({
+              receiverUsername: newUsername
+            })
+          ]);
+        }
+      }
+
+      const allRelationships = await db.queryOnce({ relationships: {} });
+      const userRelationships = allRelationships.data?.relationships?.filter((r: any) => 
+        r.partnerUsername === oldUsername
+      ) || [];
+      
+      for (const rel of userRelationships) {
+        await db.transact([
+          db.tx.relationships[rel.id].update({
+            partnerUsername: newUsername
+          })
+        ]);
+      }
+
+      const allFriendships = await db.queryOnce({ friendships: {} });
+      const userFriendships = allFriendships.data?.friendships?.filter((f: any) => 
+        f.friendUsername === oldUsername
+      ) || [];
+      
+      for (const friend of userFriendships) {
+        await db.transact([
+          db.tx.friendships[friend.id].update({
+            friendUsername: newUsername
+          })
+        ]);
+      }
+
+      setShowUsernameModal(false);
+      setNewUsername("");
+      Alert.alert("Success", "Username updated successfully");
+    } catch (error) {
+      console.error("Error updating username:", error);
+      Alert.alert("Error", "Failed to update username");
     }
   };
   
@@ -137,24 +283,40 @@ export default function Profile() {
           className="w-full p-6 shadow-xl mb-6"
         >
           <View className="items-center">
-            <TouchableOpacity 
-              onPress={() => setShowPhotoOptions(true)}
-              className="w-24 h-24 rounded-full bg-white/10 items-center justify-center mb-4"
-            >
-              {userProfile?.photo ? (
-                <Image
-                  source={{ uri: userProfile.photo }}
-                  style={{ width: 96, height: 96, borderRadius: 48 }}
-                />
-              ) : (
-                <Text className="text-5xl">{userProfile?.emoji || "👤"}</Text>
-              )}
-            </TouchableOpacity>
-            <Text className="text-white/60 text-xs mb-2">Tap to change</Text>
+            <View className="relative mb-4">
+              <TouchableOpacity 
+                onPress={() => setShowPhotoOptions(true)}
+                className="w-24 h-24 rounded-full bg-white/10 items-center justify-center"
+              >
+                {userProfile?.photo ? (
+                  <Image
+                    source={{ uri: userProfile.photo }}
+                    style={{ width: 96, height: 96, borderRadius: 48 }}
+                  />
+                ) : (
+                  <Text className="text-5xl">{userProfile?.emoji || "👤"}</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity 
+                onPress={() => setShowPhotoOptions(true)}
+                className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-blue-600 border-2 border-white items-center justify-center"
+                style={{ backgroundColor: "#1e293b" }}
+              >
+                <Text className="text-white text-sm">✎</Text>
+              </TouchableOpacity>
+            </View>
             
-            <Text className="text-white text-3xl font-bold mb-2">
-              @{userProfile?.username || "Loading..."}
-            </Text>
+            <TouchableOpacity 
+              onPress={() => {
+                setNewUsername(userProfile?.username || "");
+                setShowUsernameModal(true);
+              }}
+              className="mb-2"
+            >
+              <Text className="text-white text-3xl font-bold">
+                @{userProfile?.username || "Loading..."}
+              </Text>
+            </TouchableOpacity>
             
             <Text className="text-white/60 text-sm mb-6">
               {user?.email}
@@ -230,8 +392,8 @@ export default function Profile() {
               borderColor: "rgba(239,68,68,0.3)",
             }}
             className="flex-row items-center justify-between rounded-xl p-4 border"
-            onPress={() => {
-              db.auth.signOut();
+            onPress={async () => {
+              await db.auth.signOut();
               router.replace("/");
             }}
           >
@@ -289,7 +451,7 @@ export default function Profile() {
           />
           <View
             style={{
-              backgroundColor: "#1e3a8a",
+              backgroundColor: "#1e293b",
               borderTopLeftRadius: 30,
               borderTopRightRadius: 30,
               borderWidth: 1,
@@ -385,6 +547,68 @@ export default function Profile() {
               )}
               showsVerticalScrollIndicator={false}
             />
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showUsernameModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowUsernameModal(false)}
+      >
+        <View className="flex-1 justify-end bg-black/50">
+          <TouchableOpacity 
+            className="flex-1" 
+            activeOpacity={1}
+            onPress={() => setShowUsernameModal(false)}
+          />
+          <View
+            style={{
+              backgroundColor: "#1e293b",
+              borderTopLeftRadius: 30,
+              borderTopRightRadius: 30,
+              borderWidth: 1,
+              borderColor: theme.headerBorder,
+            }}
+            className="p-6"
+          >
+            <View className="flex-row justify-between items-center mb-4">
+              <Text className="text-white text-xl font-bold">Change Username</Text>
+              <TouchableOpacity
+                onPress={() => setShowUsernameModal(false)}
+                className="bg-white/10 rounded-full p-2"
+              >
+                <Text className="text-white text-lg">✕</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <TextInput
+              value={newUsername}
+              onChangeText={setNewUsername}
+              placeholder="Enter new username"
+              placeholderTextColor="rgba(255,255,255,0.5)"
+              className="bg-white/10 rounded-xl px-4 py-3 text-white text-lg mb-2"
+              autoCapitalize="none"
+              autoCorrect={false}
+              maxLength={20}
+            />
+            <Text className="text-white/60 text-xs mb-4 px-2">
+              3-20 characters, letters, numbers, and underscores only
+            </Text>
+            
+            <TouchableOpacity
+              onPress={handleUsernameUpdate}
+              style={{
+                backgroundColor: theme.innerCard,
+                borderColor: theme.innerCardBorder,
+              }}
+              className="py-4 rounded-xl border"
+            >
+              <Text className="text-white text-center font-semibold text-lg">
+                Update Username
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
