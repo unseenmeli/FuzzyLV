@@ -81,6 +81,26 @@ export default function AddChat() {
       }
     }
     
+    const existingInvites = await db.queryOnce({
+      invitations: {
+        $: {
+          where: {
+            and: [
+              { senderUsername: myProfile.username },
+              { receiverUsername: targetUsername },
+              { type: chatType },
+              { status: "pending" }
+            ]
+          }
+        }
+      }
+    });
+    
+    if (existingInvites.data?.invitations?.length > 0) {
+      Alert.alert("Already Sent", `You already sent a ${chatType} invitation to ${targetUsername}`);
+      return;
+    }
+    
     setLoading(true);
     try {
       const inviteId = id();
