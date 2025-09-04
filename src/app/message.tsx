@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Audio } from 'expo-av';
+import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from 'expo-media-library';
@@ -34,7 +34,6 @@ export default function Message() {
   const scrollViewRef = useRef<ScrollView>(null);
   const [selectedMessage, setSelectedMessage] = useState<any>(null);
   const [showMessageActions, setShowMessageActions] = useState(false);
-  const [reactionSound, setReactionSound] = useState<Audio.Sound | null>(null);
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
@@ -118,35 +117,6 @@ export default function Message() {
     }
   }, [messages]);
 
-  useEffect(() => {
-    loadSound();
-    return () => {
-      if (reactionSound) {
-        reactionSound.unloadAsync();
-      }
-    };
-  }, []);
-
-  const loadSound = async () => {
-    try {
-      const { sound } = await Audio.Sound.createAsync(
-        require('../../ui-pop-up-1-197886.mp3')
-      );
-      setReactionSound(sound);
-    } catch (error) {
-      console.log('Error loading sound:', error);
-    }
-  };
-
-  const playReactionSound = async () => {
-    try {
-      if (reactionSound) {
-        await reactionSound.replayAsync();
-      }
-    } catch (error) {
-      console.log('Error playing sound:', error);
-    }
-  };
 
   useEffect(() => {
     if (!messages || messages.length === 0 || !userProfile?.username) return;
@@ -480,9 +450,13 @@ export default function Message() {
                     </Text>
                   )}
                   <Pressable
-                    onLongPress={() => {
+                    onLongPress={async () => {
                       Keyboard.dismiss();
-                      playReactionSound();
+                      try {
+                        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                      } catch (error) {
+                        console.log('Haptics not available:', error);
+                      }
                       setSelectedMessage(msg);
                       setShowMessageActions(true);
                     }}

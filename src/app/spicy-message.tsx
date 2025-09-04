@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Audio } from 'expo-av';
+import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from 'expo-media-library';
@@ -155,7 +155,6 @@ export default function SpicyMessage() {
   const scrollViewRef = useRef<ScrollView>(null);
   const [selectedMessage, setSelectedMessage] = useState<any>(null);
   const [showMessageActions, setShowMessageActions] = useState(false);
-  const [reactionSound, setReactionSound] = useState<Audio.Sound | null>(null);
   const [replyingTo, setReplyingTo] = useState<any>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [viewingImage, setViewingImage] = useState<string | null>(null);
@@ -229,27 +228,6 @@ export default function SpicyMessage() {
       .sort((a: any, b: any) => a.createdAt - b.createdAt);
   }, [messageData, choice, userProfile, otherUsername]);
 
-  useEffect(() => {
-    const loadReactionSound = async () => {
-      try {
-        const { sound } = await Audio.Sound.createAsync(
-          require('../../ui-pop-up-1-197886.mp3'),
-          { shouldPlay: false }
-        );
-        setReactionSound(sound);
-      } catch (error) {
-        console.error('Error loading reaction sound:', error);
-      }
-    };
-
-    loadReactionSound();
-
-    return () => {
-      if (reactionSound) {
-        reactionSound.unloadAsync();
-      }
-    };
-  }, []);
 
   const sendMessage = async () => {
     if (!message.trim() && !selectedImage) return;
@@ -327,14 +305,6 @@ export default function SpicyMessage() {
 
   const handleReaction = async (reaction: string) => {
     if (!selectedMessage || !user) return;
-
-    try {
-      if (reactionSound) {
-        await reactionSound.replayAsync();
-      }
-    } catch (error) {
-      console.error('Error playing reaction sound:', error);
-    }
 
     setShowMessageActions(false);
     setSelectedMessage(null);
@@ -489,7 +459,12 @@ export default function SpicyMessage() {
         )}
 
         <Pressable
-          onLongPress={() => {
+          onLongPress={async () => {
+            try {
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            } catch (error) {
+              console.log('Haptics not available:', error);
+            }
             setSelectedMessage(msg);
             setShowMessageActions(true);
           }}
