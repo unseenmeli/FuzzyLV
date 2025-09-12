@@ -9,7 +9,7 @@ import {
   PanResponder,
   Image,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { safeNavigate } from "@/utils/navigation";
 import db from "@/utils/db";
 import { GradientBackground, themes } from "@/utils/shared";
 import { id as instantId } from "@instantdb/react-native";
@@ -28,8 +28,6 @@ export default function FingerTap() {
   const [currentTouch, setCurrentTouch] = useState<TouchPoint | null>(null);
   const [username, setUsername] = useState<string>("");
   const [partnerUsername, setPartnerUsername] = useState<string>("");
-  const router = useRouter();
-
   const { data: profileData } = db.useQuery(
     user ? {
       profiles: { $: { where: { "owner.id": user.id } } },
@@ -93,23 +91,8 @@ export default function FingerTap() {
     ? [username, partnerUsername].sort().join("-")
     : null;
 
-  const room = React.useMemo(() => {
-    if (!roomId) return null;
-    return db.room('finger-tap', roomId);
-  }, [roomId]);
-
-  const dummyRoom = React.useMemo(() => db.room('finger-tap', 'dummy-never-used'), []);
-  const presenceRoom = room || dummyRoom;
-  
-  const { user: myPresence, peers, publishPresence } = db.rooms.usePresence(presenceRoom, {
-    initialData: { 
-      username,
-      touches: [] as TouchPoint[]
-    }
-  });
-  
-  const actualPeers = room ? peers : {};
-  const actualPublishPresence = room ? publishPresence : (() => {});
+  const actualPeers = {};
+  const actualPublishPresence = () => {};
   
   const partnerTouches = React.useMemo(() => {
     if (!actualPeers || !partnerUsername) return [];
@@ -139,16 +122,11 @@ export default function FingerTap() {
   }, [currentTouch]);
   
   useEffect(() => {
-    if (actualPublishPresence && username) {
+    if (username) {
       const now = Date.now();
       const recentTouches = currentTouch ? [currentTouch] : [];
-      
-      actualPublishPresence({
-        username,
-        touches: recentTouches.filter(t => now - t.timestamp < 3000)
-      });
     }
-  }, [actualPublishPresence, username, currentTouch]);
+  }, [username, currentTouch]);
 
   const panResponder = React.useMemo(() => 
     PanResponder.create({
@@ -217,7 +195,7 @@ export default function FingerTap() {
         >
           <View className="flex-1 items-end flex-row pb-4">
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => safeNavigate.back()}
               className="bg-white/10 rounded-full w-10 h-10 items-center justify-center ml-4 border border-white/20"
             >
               <Text className="text-white text-lg font-bold">‹</Text>
@@ -234,7 +212,7 @@ export default function FingerTap() {
             Please select a chat from the home screen first
           </Text>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={() => safeNavigate.back()}
             className="bg-white/10 rounded-xl px-6 py-3 border border-white/20"
           >
             <Text className="text-white font-semibold">Go Back</Text>
@@ -297,7 +275,7 @@ export default function FingerTap() {
         <View className="flex-1 items-end flex-row pb-4">
           <View className="flex-row items-center w-full">
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => safeNavigate.back()}
               className="bg-white/10 rounded-full w-10 h-10 items-center justify-center ml-4 mr-4 border border-white/20"
             >
               <Text className="text-white text-lg font-bold">‹</Text>

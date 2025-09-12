@@ -9,6 +9,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -23,8 +25,8 @@ export const usePushNotifications = (): PushNotificationsState => {
   const [notification, setNotification] = useState<Notifications.Notification | null>(null);
   const [error, setError] = useState<Error | null>(null);
   
-  const notificationListener = useRef<Notifications.Subscription>();
-  const responseListener = useRef<Notifications.Subscription>();
+  const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
+  const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
 
   useEffect(() => {
     registerForPushNotificationsAsync()
@@ -34,8 +36,9 @@ export const usePushNotifications = (): PushNotificationsState => {
           console.log('Push notification token:', token);
         }
       })
-      .catch(error => {
+      .catch((error: Error) => {
         console.log('Push notifications not available:', error.message);
+        setError(error);
       });
 
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
@@ -95,7 +98,7 @@ async function registerForPushNotificationsAsync(): Promise<string | null> {
     });
     token = tokenResponse.data;
     console.log('Expo push token obtained:', token);
-  } catch (error) {
+  } catch (error: any) {
     console.log('Could not get push token:', error.message);
     return null;
   }
