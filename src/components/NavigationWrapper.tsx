@@ -6,20 +6,16 @@ import { GradientBackground, themes } from '@/utils/shared';
 export default function NavigationWrapper({ children }: { children: React.ReactNode }) {
   const [isReady, setIsReady] = useState(false);
   
-  // Try to detect if navigation is ready
   try {
     const navigationState = useNavigationState(state => state);
     
     useEffect(() => {
-      // Navigation is ready if we can get state
       if (navigationState) {
         setIsReady(true);
       }
     }, [navigationState]);
   } catch (error) {
-    // Navigation not ready yet
     useEffect(() => {
-      // Fallback: just wait a bit for navigation to be ready
       const timer = setTimeout(() => setIsReady(true), 100);
       return () => clearTimeout(timer);
     }, []);

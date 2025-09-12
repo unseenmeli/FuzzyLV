@@ -16,7 +16,6 @@ function ErrorFallback({ resetError }: { resetError: () => void }) {
   try {
     router = useRouter();
   } catch (e) {
-    // Router not available in error state
     router = null;
   }
 

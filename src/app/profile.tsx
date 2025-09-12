@@ -1,6 +1,7 @@
-import { Text, TouchableOpacity, View, Switch, Modal, FlatList, Image, Alert, TextInput } from "react-native";
-import { GradientBackground, themes } from "@/utils/shared";
+import { Text, TouchableOpacity, View, Switch, Modal, FlatList, Image, Alert, TextInput, ScrollView } from "react-native";
 import { router } from "expo-router";
+import { GradientBackground, themes } from "@/utils/shared";
+import { safeNavigate } from "@/utils/navigation";
 import db from "@/utils/db";
 import { useState, useEffect } from "react";
 import * as ImagePicker from "expo-image-picker";
@@ -272,7 +273,7 @@ export default function Profile() {
         </View>
       </View>
       
-      <View className="flex-1 px-4 pt-8">
+      <ScrollView className="flex-1 px-4 pt-8" showsVerticalScrollIndicator={false}>
         <View
           style={{
             backgroundColor: theme.card,
@@ -328,15 +329,6 @@ export default function Profile() {
                 {userProfile?.friendCode ? `${userProfile.friendCode.slice(0, 3)}-${userProfile.friendCode.slice(3)}` : "---­---"}
               </Text>
             </View>
-            
-            {userProfile?.pushToken && (
-              <View className="bg-black/10 rounded-xl px-4 py-2">
-                <Text className="text-white/60 text-xs mb-1">Push Token (Debug)</Text>
-                <Text className="text-white/40 text-xs font-mono" numberOfLines={1}>
-                  {userProfile.pushToken.substring(0, 30)}...
-                </Text>
-              </View>
-            )}
           </View>
         </View>
         
@@ -394,7 +386,7 @@ export default function Profile() {
             className="flex-row items-center justify-between rounded-xl p-4 border"
             onPress={async () => {
               await db.auth.signOut();
-              router.replace("/");
+              safeNavigate.replace("/");
             }}
           >
             <View className="flex-row items-center">
@@ -406,7 +398,10 @@ export default function Profile() {
             <Text className="text-red-400 text-2xl">›</Text>
           </TouchableOpacity>
         </View>
-      </View>
+        
+        {/* Add padding at bottom for footer */}
+        <View className="h-20" />
+      </ScrollView>
       
       <View
         style={{
@@ -418,21 +413,17 @@ export default function Profile() {
       >
         <View className="flex-row justify-around items-center py-4 pb-8">
           <TouchableOpacity 
-            className="items-center px-4"
+            className="items-center px-6"
             onPress={() => router.replace("/")}
           >
-            <Text className={`text-2xl opacity-50 ${theme.textAccent}`}>⌂♡</Text>
+            <Text className={`text-2xl opacity-50 ${theme.textAccent}`}>⌂</Text>
+            <Text className={`text-xs mt-1 opacity-50 ${theme.textAccent}`}>Home</Text>
           </TouchableOpacity>
           <TouchableOpacity 
-            className="items-center px-4"
-            onPress={() => router.push("/chats")}
-          >
-            <Text className={`text-2xl opacity-50 ${theme.textAccent}`}>◭</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            className="items-center px-4"
+            className="items-center px-6"
           >
             <Text className={`text-2xl ${theme.textAccent}`}>◔</Text>
+            <Text className={`text-xs mt-1 ${theme.textAccent}`}>Profile</Text>
           </TouchableOpacity>
         </View>
       </View>

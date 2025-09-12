@@ -15,13 +15,17 @@ import db from "@/utils/db";
 import { id } from "@instantdb/react-native";
 import pushNotificationService from "@/services/pushNotificationService";
 import { BlurView } from "expo-blur";
+import { safeNavigate } from "@/utils/navigation";
+import LoadingSpinner from "@/components/LoadingSpinner";
 
 export default function Chats() {
-  const { user } = db.useAuth();
+  const { user, isLoading: authLoading } = db.useAuth();
   const [addConnectionModal, setAddConnectionModal] = useState(false);
   const [connectionCode, setConnectionCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [longPressModal, setLongPressModal] = useState(false);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  const [isSelectingChat, setIsSelectingChat] = useState(false);
   const [selectedItem, setSelectedItem] = useState<{
     type: string;
     id: string;
@@ -98,7 +102,6 @@ export default function Chats() {
     (i) =>
       i.status === "pending" && i.senderUsername === userProfile?.username
   );
-  // Remove duplicates based on partner username or name
   const relationships = React.useMemo(() => {
     const rels = data?.relationships || [];
     const seen = new Set();
@@ -124,6 +127,12 @@ export default function Chats() {
       return true;
     });
   }, [data?.friendships]);
+
+  useEffect(() => {
+    if (data !== undefined) {
+      setIsLoadingData(false);
+    }
+  }, [data]);
 
   const connections = (data?.connections || []).filter((c) => {
     if (c.status !== "accepted") return false;
@@ -308,14 +317,12 @@ export default function Chats() {
     if (!user || !userProfile) return;
 
     try {
-      // Check if already accepted this invitation
       if (invite.status === "accepted") {
         Alert.alert("Info", "This invitation was already accepted");
         return;
       }
 
       if (invite.type === "relationship") {
-        // Check if relationship already exists with this person
         const existingRel = relationships.find(
           (r: any) => r.partnerUsername === invite.senderUsername
         );
@@ -341,7 +348,6 @@ export default function Chats() {
             .link({ owner: user.id }),
         ]);
       } else if (invite.type === "friendship") {
-        // Check if friendship already exists with this person
         const existingFriend = friendships.find(
           (f: any) => f.friendUsername === invite.senderUsername
         );
@@ -439,13 +445,11 @@ export default function Chats() {
     if (!selectedItem || !userProfile) return;
     
     try {
-      // Find the connection record
       let connectionToDelete = null;
       
       if (selectedItem.type === "connection") {
         connectionToDelete = connections.find(c => c.id === selectedItem.id);
       } else if (selectedItem.username) {
-        // For relationships/friendships, find the underlying connection
         connectionToDelete = (data?.connections || []).find((c: any) => 
           (c.senderUsername === userProfile.username && c.receiverUsername === selectedItem.username) ||
           (c.receiverUsername === userProfile.username && c.senderUsername === selectedItem.username)
@@ -453,12 +457,10 @@ export default function Chats() {
       }
       
       if (connectionToDelete) {
-        // Delete the connection (this will affect both users)
         await db.transact([
           db.tx.connections[connectionToDelete.id].delete()
         ]);
         
-        // If it's a relationship or friendship, also delete that
         if (selectedItem.type === "relationship") {
           await db.transact([
             db.tx.relationships[selectedItem.id].delete()
@@ -493,6 +495,8 @@ export default function Chats() {
   ) => {
     if (!user) return;
 
+    setIsSelectingChat(true);
+
     try {
       const { data: choiceData } = await db.queryOnce({
         choice: { $: { where: { "owner.id": user.id } } },
@@ -525,9 +529,10 @@ export default function Chats() {
         );
       }
 
-      router.push("/");
+      safeNavigate.back();
     } catch (error) {
       console.error("Error selecting chat:", error);
+      setIsSelectingChat(false);
     }
   };
 
@@ -565,7 +570,7 @@ export default function Chats() {
                 <Text className="text-white text-lg font-bold">+</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => router.push("/add-chat")}
+                onPress={() => safeNavigate.push("/add-chat")}
                 className="bg-white/10 rounded-full px-4 py-2 border border-white/20"
               >
                 <Text className="text-white text-sm font-bold">Invite</Text>
@@ -576,6 +581,12 @@ export default function Chats() {
       </View>
 
       <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
+        {isLoadingData ? (
+          <View className="flex-1 items-center justify-center py-20">
+            <LoadingSpinner message="Loading chats..." color="white" />
+          </View>
+        ) : (
+          <>
         {pendingConnections.length > 0 && (
           <View className="w-full items-center my-6">
             <Text className="text-2xl font-bold p-2 text-white/90 mb-3">
@@ -905,6 +916,8 @@ export default function Chats() {
         )}
 
         <View className="h-24" />
+          </>
+        )}
       </ScrollView>
 
       <Modal
@@ -1037,6 +1050,21 @@ export default function Chats() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {isSelectingChat && (
+        <BlurView 
+          intensity={50}
+          tint="dark"
+          className="absolute inset-0 items-center justify-center z-50"
+          style={{ elevation: 999 }}
+        >
+          <View className="absolute inset-0 bg-black/30" />
+          <View className="bg-white/10 rounded-2xl p-8 items-center backdrop-blur-lg">
+            <LoadingSpinner color="white" />
+            <Text className="text-white text-lg font-semibold mt-4">Loading chat...</Text>
+          </View>
+        </BlurView>
+      )}
     </View>
   );
 }
