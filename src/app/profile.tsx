@@ -5,6 +5,7 @@ import { safeNavigate } from "@/utils/navigation";
 import db from "@/utils/db";
 import { useState, useEffect } from "react";
 import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const availableEmojis = [
   "😊", "😎", "🤓", "😇", "🤩", "😘", "🥰", "😍", "🤗", "🤝",
@@ -380,6 +381,33 @@ export default function Profile() {
           
           <TouchableOpacity
             style={{
+              backgroundColor: "rgba(251,146,60,0.1)",
+              borderColor: "rgba(251,146,60,0.3)",
+            }}
+            className="flex-row items-center justify-between rounded-xl p-4 mb-4 border"
+            onPress={async () => {
+              try {
+                await AsyncStorage.removeItem("ageVerified");
+                await AsyncStorage.removeItem("ageGroup");
+                await AsyncStorage.removeItem("birthDate");
+                await AsyncStorage.removeItem("spicyAgeVerified");
+                Alert.alert("Age Verification Reset", "Age verification has been cleared. Please restart the app to verify your age again.");
+              } catch (error) {
+                Alert.alert("Error", "Failed to reset age verification");
+              }
+            }}
+          >
+            <View className="flex-row items-center">
+              <Text className="text-3xl mr-4">🔄</Text>
+              <Text className="font-semibold text-lg text-orange-400">
+                Reset Age Verification
+              </Text>
+            </View>
+            <Text className="text-orange-400 text-2xl">›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={{
               backgroundColor: "rgba(239,68,68,0.1)",
               borderColor: "rgba(239,68,68,0.3)",
             }}
@@ -390,7 +418,7 @@ export default function Profile() {
             }}
           >
             <View className="flex-row items-center">
-              <Text className="text-3xl mr-4 text-red-400">⬡</Text>
+              <Text className="text-3xl mr-4">⬡</Text>
               <Text className="font-semibold text-lg text-red-400">
                 Sign Out
               </Text>
@@ -398,8 +426,7 @@ export default function Profile() {
             <Text className="text-red-400 text-2xl">›</Text>
           </TouchableOpacity>
         </View>
-        
-        {/* Add padding at bottom for footer */}
+
         <View className="h-20" />
       </ScrollView>
       

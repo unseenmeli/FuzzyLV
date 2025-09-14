@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import { BlurView } from "expo-blur";
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
-import * as FileSystem from "expo-file-system";
+import { documentDirectory, writeAsStringAsync } from "expo-file-system/legacy";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View,
@@ -176,6 +176,7 @@ export default function SpicyMessage() {
   const [usedQuestions, setUsedQuestions] = useState<Set<string>>(new Set());
   const [ageVerified, setAgeVerified] = useState(false);
   const [ageCheckLoaded, setAgeCheckLoaded] = useState(false);
+  const [userAgeGroup, setUserAgeGroup] = useState<"teen" | "adult" | null>(null);
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
   const swipeAnimations = useRef<{
@@ -285,9 +286,19 @@ export default function SpicyMessage() {
   useEffect(() => {
     const checkAgeVerification = async () => {
       try {
-        const verified = await AsyncStorage.getItem("spicyAgeVerified");
-        if (verified === "true") {
-          setAgeVerified(true);
+        let ageGroup = userProfile?.ageGroup || null;
+
+        if (!ageGroup) {
+          ageGroup = await AsyncStorage.getItem("ageGroup");
+        }
+
+        setUserAgeGroup(ageGroup as "teen" | "adult" | null);
+
+        if (ageGroup === "adult") {
+          const spicyVerified = await AsyncStorage.getItem("spicyAgeVerified");
+          if (spicyVerified === "true") {
+            setAgeVerified(true);
+          }
         }
         setAgeCheckLoaded(true);
       } catch (error) {
@@ -296,7 +307,7 @@ export default function SpicyMessage() {
       }
     };
     checkAgeVerification();
-  }, []);
+  }, [userProfile]);
 
   const sendMessage = async () => {
     if (!message.trim() && !selectedImage) return;
@@ -524,10 +535,10 @@ export default function SpicyMessage() {
 
       const base64Data = imageUri.replace(/^data:image\/[a-z]+;base64,/, "");
       const fileUri =
-        FileSystem.documentDirectory + `spicy_image_${Date.now()}.jpg`;
+        (documentDirectory || '') + `spicy_image_${Date.now()}.jpg`;
 
-      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-        encoding: FileSystem.EncodingType.Base64,
+      await writeAsStringAsync(fileUri, base64Data, {
+        encoding: 'base64' as any,
       });
 
       const asset = await MediaLibrary.createAssetAsync(fileUri);
@@ -778,7 +789,42 @@ export default function SpicyMessage() {
     return null;
   }
 
-  if (!ageVerified) {
+  if (userAgeGroup === "teen") {
+    return (
+      <View className="flex-1">
+        <GradientBackground colors={spicyTheme.gradient} />
+        <View className="flex-1 bg-black/50 justify-center items-center p-6">
+          <View className="bg-red-950 rounded-3xl p-8 border border-red-600 w-full max-w-sm">
+            <Text className="text-6xl text-center mb-4">🔒</Text>
+            <Text className="text-red-100 text-2xl font-bold text-center mb-4">
+              Content Restricted
+            </Text>
+            <Text className="text-red-300 text-center mb-6">
+              This feature is only available for users 18 and older.
+            </Text>
+            <Text className="text-red-200/80 text-center mb-8">
+              As a teen user, you have access to all other amazing features to connect with your friends and partners in a safe environment!
+            </Text>
+
+            <TouchableOpacity
+              onPress={() => safeNavigate.back()}
+              className="py-4 rounded-xl bg-red-700"
+            >
+              <Text className="text-white text-center font-bold">
+                Go Back
+              </Text>
+            </TouchableOpacity>
+
+            <Text className="text-red-500/50 text-xs text-center mt-6">
+              We take safety seriously and ensure age-appropriate content for all users.
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  if (!ageVerified && userAgeGroup === "adult") {
     return (
       <View className="flex-1">
         <GradientBackground colors={spicyTheme.gradient} />
