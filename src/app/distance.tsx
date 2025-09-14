@@ -306,109 +306,77 @@ function DistanceComponent() {
 
         {locationStatus === 'granted' && distance !== null && (
           <View className="items-center">
-            {/* Globe visualization */}
             <View className="mb-6" {...panResponder.panHandlers}>
               <Svg width={200} height={200} viewBox="0 0 200 200">
-                {/* Definitions for gradients and patterns */}
                 <Defs>
-                  {/* Better ocean gradient with depth */}
                   <RadialGradient id="oceanGradient" cx="50%" cy="40%">
                     <Stop offset="0%" stopColor="#4FC3F7" stopOpacity={1} />
                     <Stop offset="30%" stopColor="#29B6F6" stopOpacity={1} />
                     <Stop offset="60%" stopColor="#039BE5" stopOpacity={1} />
                     <Stop offset="100%" stopColor="#01579B" stopOpacity={1} />
                   </RadialGradient>
-                  
-                  {/* Shadow gradient for 3D effect */}
                   <RadialGradient id="shadowGradient" cx="30%" cy="30%">
                     <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.3} />
                     <Stop offset="50%" stopColor="#FFFFFF" stopOpacity={0.1} />
                     <Stop offset="100%" stopColor="#000000" stopOpacity={0.4} />
                   </RadialGradient>
-                  
-                  {/* Clipping mask for globe */}
                   <ClipPath id="globeClip">
                     <Circle cx="100" cy="100" r="78" />
                   </ClipPath>
                 </Defs>
 
-                {/* Globe circle with ocean */}
                 <Circle
                   cx="100"
                   cy="100"
                   r="80"
                   fill="url(#oceanGradient)"
                 />
-                
-                {/* Continent shapes with rotation */}
                 <G transform={`rotate(${rotation}, 100, 100)`} clipPath="url(#globeClip)">
-                  {/* Simplified, cleaner continents */}
-                  
-                  {/* Africa */}
                   <Path
                     d="M 100 50 Q 105 48, 108 52 L 107 60 L 106 68 L 105 75 Q 103 82, 100 85 Q 97 82, 95 75 L 94 68 L 93 60 L 94 52 Q 97 48, 100 50 Z"
                     fill="#4CAF50"
                     opacity={0.8}
                   />
-                  
-                  {/* Europe */}
                   <Path
                     d="M 90 40 Q 95 38, 100 40 L 98 45 L 95 47 L 90 45 Z"
                     fill="#66BB6A"
                     opacity={0.8}
                   />
-                  
-                  {/* North America */}
                   <Path
                     d="M 45 50 Q 55 48, 65 52 L 68 58 L 65 65 Q 60 70, 55 68 L 50 65 L 45 58 L 43 52 Z"
                     fill="#66BB6A"
                     opacity={0.8}
                   />
-                  
-                  {/* South America */}
                   <Path
                     d="M 55 85 L 58 90 L 57 100 L 55 110 Q 53 115, 50 113 L 48 105 L 48 95 L 50 87 Z"
                     fill="#4CAF50"
                     opacity={0.8}
                   />
-                  
-                  {/* Asia */}
                   <Path
                     d="M 115 45 Q 130 43, 145 48 L 150 55 L 148 62 L 145 65 Q 140 68, 135 65 L 125 60 L 118 55 L 115 48 Z"
                     fill="#66BB6A"
                     opacity={0.8}
                   />
-                  
-                  {/* Australia */}
                   <Path
                     d="M 125 110 Q 130 108, 135 110 L 137 113 Q 135 115, 130 114 L 125 112 Z"
                     fill="#8BC34A"
                     opacity={0.7}
                   />
-                  
-                  {/* Greenland */}
                   <Path
                     d="M 70 35 Q 72 34, 75 35 L 76 38 Q 74 40, 72 39 L 70 37 Z"
                     fill="#E0E0E0"
                     opacity={0.9}
                   />
-                  
-                  {/* Repeated continents for seamless rotation */}
-                  {/* Africa copy */}
                   <Path
                     d="M 280 50 Q 285 48, 288 52 L 287 60 L 286 68 L 285 75 Q 283 82, 280 85 Q 277 82, 275 75 L 274 68 L 273 60 L 274 52 Q 277 48, 280 50 Z"
                     fill="#4CAF50"
                     opacity={0.8}
                   />
-                  
-                  {/* Americas copy */}
                   <Path
                     d="M -135 50 Q -125 48, -115 52 L -112 58 L -115 65 Q -120 70, -125 68 L -130 65 L -135 58 L -137 52 Z"
                     fill="#66BB6A"
                     opacity={0.8}
                   />
-                  
-                  {/* Asia copy on left */}
                   <Path
                     d="M -65 45 Q -50 43, -35 48 L -30 55 L -32 62 L -35 65 Q -40 68, -45 65 L -55 60 L -62 55 L -65 48 Z"
                     fill="#66BB6A"
@@ -416,15 +384,12 @@ function DistanceComponent() {
                   />
                 </G>
 
-                {/* 3D shadow overlay */}
                 <Circle
                   cx="100"
                   cy="100"
                   r="79"
                   fill="url(#shadowGradient)"
                 />
-                
-                {/* Subtle grid lines */}
                 <Ellipse
                   cx="100"
                   cy="100"
@@ -444,7 +409,6 @@ function DistanceComponent() {
                   strokeWidth="0.5"
                 />
 
-                {/* Connection arc between points - make it glow */}
                 <Path
                   d="M 50 80 Q 100 40, 150 80"
                   fill="transparent"
@@ -459,8 +423,6 @@ function DistanceComponent() {
                   strokeWidth="2"
                   strokeDasharray="5,5"
                 />
-                
-                {/* User location dot with pin effect */}
                 <Line
                   x1="50"
                   y1="80"
@@ -489,8 +451,6 @@ function DistanceComponent() {
                   fill={choice?.activeType === "relationship" ? "#f472b6" : "#93c5fd"}
                   opacity={0.1}
                 />
-                
-                {/* Partner location dot with pin effect */}
                 <Line
                   x1="150"
                   y1="80"
@@ -519,8 +479,6 @@ function DistanceComponent() {
                   fill="#ffffff"
                   opacity={0.1}
                 />
-                
-                {/* Globe border */}
                 <Circle
                   cx="100"
                   cy="100"

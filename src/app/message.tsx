@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from 'expo-media-library';
-import * as FileSystem from 'expo-file-system';
+import { documentDirectory, writeAsStringAsync } from 'expo-file-system/legacy';
 import {
   View,
   Text,
@@ -271,10 +271,10 @@ export default function Message() {
 
       const base64Data = viewingImage.split(',')[1];
       const filename = `fuzzy_${Date.now()}.jpg`;
-      const fileUri = `${FileSystem.documentDirectory}${filename}`;
+      const fileUri = `${documentDirectory || ''}${filename}`;
 
-      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-        encoding: FileSystem.EncodingType.Base64,
+      await writeAsStringAsync(fileUri, base64Data, {
+        encoding: 'base64' as any,
       });
 
       await MediaLibrary.saveToLibraryAsync(fileUri);

@@ -13,6 +13,7 @@ const _schema = i.schema({
       emoji: i.string().optional(),
       pushToken: i.string().optional(),
       notificationsEnabled: i.boolean().optional(),
+      ageGroup: i.string().optional(),
       createdAt: i.number(),
     }),
     connections: i.entity({

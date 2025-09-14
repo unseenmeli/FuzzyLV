@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import db from "@/utils/db";
 import Login from "@/components/Login";
 import UsernameSetup from "@/components/UsernameSetup";
+import AgeVerification from "@/components/AgeVerification";
 import { GradientBackground, themes } from "@/utils/shared";
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
@@ -14,6 +15,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import NavigationWrapper from "@/components/NavigationWrapper";
 import { safeNavigate } from "@/utils/navigation";
 import LoadingSpinner from "@/components/LoadingSpinner";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const availableEmojis = [
   "😊", "😎", "🤓", "😇", "🤩", "😘", "🥰", "😍", "🤗", "🤝",
@@ -31,18 +33,16 @@ export default function index() {
     user = auth.user;
     isLoading = auth.isLoading;
   } catch (error) {
-    console.warn("Navigation context not ready:", error);
     return (
-      <View className="flex-1">
-        <GradientBackground colors={themes.relationship.gradient} />
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-white text-xl">Loading...</Text>
-        </View>
+      <View style={{ flex: 1, backgroundColor: '#FF8FA3', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: 'white', fontSize: 20 }}>Loading...</Text>
       </View>
     );
   }
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const [ageVerified, setAgeVerified] = useState<boolean | null>(null);
+  const [ageGroup, setAgeGroup] = useState<"teen" | "adult" | null>(null);
 
   const { data: profileData } = db.useQuery(
     user
@@ -54,6 +54,28 @@ export default function index() {
 
   const userProfile = profileData?.profiles?.[0];
   const [pushToken, setPushToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    const checkAgeVerification = async () => {
+      try {
+        if (userProfile?.ageGroup) {
+          setAgeVerified(true);
+          setAgeGroup(userProfile.ageGroup as "teen" | "adult");
+          await AsyncStorage.setItem("ageVerified", "true");
+          await AsyncStorage.setItem("ageGroup", userProfile.ageGroup);
+        } else {
+          const verified = await AsyncStorage.getItem("ageVerified");
+          const group = await AsyncStorage.getItem("ageGroup");
+          setAgeVerified(verified === "true");
+          setAgeGroup(group as "teen" | "adult" | null);
+        }
+      } catch (error) {
+        console.error("Error checking age verification:", error);
+        setAgeVerified(false);
+      }
+    };
+    checkAgeVerification();
+  }, [userProfile]);
 
   useEffect(() => {
     if (!userProfile || !Device.isDevice) return;
@@ -172,7 +194,6 @@ export default function index() {
         );
       }
 
-        handleCloseChats();
     } catch (error) {
       console.error("Error selecting chat:", error);
     }
@@ -248,14 +269,24 @@ export default function index() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || ageVerified === null) {
     return (
-      <View className="flex-1">
-        <GradientBackground colors={themes.relationship.gradient} />
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-white text-xl">Loading...</Text>
-        </View>
+      <View style={{ flex: 1, backgroundColor: '#FF8FA3', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: 'white', fontSize: 20 }}>Loading...</Text>
       </View>
+    );
+  }
+
+  if (!ageVerified) {
+    return (
+      <AgeVerification
+        onVerified={(group) => {
+          setAgeVerified(true);
+          setAgeGroup(group);
+        }}
+        user={user}
+        userProfile={userProfile}
+      />
     );
   }
 
@@ -265,11 +296,8 @@ export default function index() {
 
   if (profileData === undefined) {
     return (
-      <View className="flex-1">
-        <GradientBackground colors={themes.relationship.gradient} />
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-white text-xl">Loading profile...</Text>
-        </View>
+      <View style={{ flex: 1, backgroundColor: '#FF8FA3', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: 'white', fontSize: 20 }}>Loading profile...</Text>
       </View>
     );
   }
@@ -518,7 +546,7 @@ export default function index() {
               <Text className={`${theme.textAccent} text-2xl`}>›</Text>
             </TouchableOpacity>
 
-            {choice?.activeType === "relationship" ? (
+            {choice?.activeType === "relationship" && ageGroup === "adult" ? (
               <TouchableOpacity
                 style={{ backgroundColor: "rgba(255,255,255,0.05)" }}
                 className="flex-row items-center justify-between rounded-xl p-4 border border-pink-200/30"

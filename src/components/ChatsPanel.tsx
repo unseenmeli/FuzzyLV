@@ -287,7 +287,6 @@ export default function ChatsPanel({ user, userProfile, onSelectChat, onAddChat,
           </View>
         ) : (
           <>
-            {/* Relationships */}
             {relationships.length > 0 && (
               <View className="w-full items-center my-6">
                 <Text className="text-2xl font-bold p-2 text-white/90 mb-3">
@@ -325,7 +324,6 @@ export default function ChatsPanel({ user, userProfile, onSelectChat, onAddChat,
               </View>
             )}
 
-            {/* Friends */}
             {friendships.length > 0 && (
               <View className="w-full items-center my-6">
                 <Text className="text-2xl font-bold p-2 text-white/90 mb-3">Friends</Text>
@@ -366,7 +364,6 @@ export default function ChatsPanel({ user, userProfile, onSelectChat, onAddChat,
               </View>
             )}
 
-            {/* Connections */}
             {connections.length > 0 && (
               <View className="w-full items-center my-6">
                 <Text className="text-2xl font-bold p-2 text-white/90 mb-3">Connections</Text>
@@ -411,7 +408,6 @@ export default function ChatsPanel({ user, userProfile, onSelectChat, onAddChat,
         )}
       </ScrollView>
 
-      {/* Add Connection Modal */}
       <Modal
         visible={addConnectionModal}
         transparent={true}
