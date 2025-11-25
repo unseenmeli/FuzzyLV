@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { View, Text, TouchableOpacity, Image, ScrollView, Linking, Modal, FlatList, Alert } from "react-native";
 import { router } from "expo-router";
 import db from "@/utils/db";
@@ -54,15 +54,23 @@ export default function index() {
 
   const userProfile = profileData?.profiles?.[0];
   const [pushToken, setPushToken] = useState<string | null>(null);
+  const [hasResetChat, setHasResetChat] = useState(false);
 
   useEffect(() => {
     const checkAgeVerification = async () => {
       try {
-        if (userProfile?.ageGroup) {
-          setAgeVerified(true);
-          setAgeGroup(userProfile.ageGroup as "teen" | "adult");
-          await AsyncStorage.setItem("ageVerified", "true");
-          await AsyncStorage.setItem("ageGroup", userProfile.ageGroup);
+        if (userProfile) {
+          if (userProfile.ageGroup) {
+            setAgeVerified(true);
+            setAgeGroup(userProfile.ageGroup as "teen" | "adult");
+            await AsyncStorage.setItem("ageVerified", "true");
+            await AsyncStorage.setItem("ageGroup", userProfile.ageGroup);
+          } else {
+            await AsyncStorage.removeItem("ageVerified");
+            await AsyncStorage.removeItem("ageGroup");
+            setAgeVerified(false);
+            setAgeGroup(null);
+          }
         } else {
           const verified = await AsyncStorage.getItem("ageVerified");
           const group = await AsyncStorage.getItem("ageGroup");
@@ -76,6 +84,29 @@ export default function index() {
     };
     checkAgeVerification();
   }, [userProfile]);
+
+  useEffect(() => {
+    const resetActiveChat = async () => {
+      if (!user || !choice || hasResetChat) return;
+
+      try {
+        await db.transact(
+          db.tx.choice[choice.id].update({
+            activeType: null,
+            activeId: null,
+            activeName: null,
+            activeEmoji: null,
+            updatedAt: Date.now(),
+          })
+        );
+        setHasResetChat(true);
+      } catch (error) {
+        console.error("Error resetting active chat:", error);
+      }
+    };
+
+    resetActiveChat();
+  }, [user?.id, choice?.id]);
 
   useEffect(() => {
     if (!userProfile || !Device.isDevice) return;
@@ -143,7 +174,7 @@ export default function index() {
 
   const choice = choiceData?.choice?.[0];
 
-  const getActiveChat = () => {
+  const activeChat = useMemo(() => {
     if (!choice) return null;
 
     if (choice.activeType === "relationship") {
@@ -154,9 +185,7 @@ export default function index() {
       return choiceData?.connections?.find((c: any) => c?.id === choice.activeId);
     }
     return null;
-  };
-
-  const activeChat = getActiveChat();
+  }, [choice, choiceData?.relationships, choiceData?.friendships, choiceData?.connections]);
   const theme = themes[choice?.activeType] || themes.relationship;
 
   const handleSelectChat = async (type: string, chatId: string, name: string, emoji: string) => {
@@ -344,7 +373,7 @@ export default function index() {
         </TouchableOpacity>
         
         <View className="flex-1 items-end flex-row pb-4">
-          {choice ? (
+          {activeChat ? (
             <View className="flex-row items-center w-full">
               <TouchableOpacity
                 onPress={() => setShowPhotoOptions(true)}
@@ -377,8 +406,8 @@ export default function index() {
               </View>
             </View>
           ) : (
-            <View className="flex-1 items-center justify-center px-6">
-              <Text className="text-5xl text-white font-bold text-center">
+            <View className="flex-1 justify-center px-6 pr-16">
+              <Text className="text-4xl text-white font-bold">
                 Welcome to Fuzzy!
               </Text>
             </View>
@@ -387,7 +416,7 @@ export default function index() {
       </View>
 
       <ScrollView className="flex-1 px-4" showsVerticalScrollIndicator={false}>
-        {choice ? (
+        {activeChat ? (
         <>
         {choice.activeType !== "connection" && (
         <View className="w-full items-center my-6">
@@ -570,58 +599,113 @@ export default function index() {
         <View className="h-32" />
         </>
         ) : (
-          <View className="flex-1 items-center justify-center px-8 py-8">
-            <Image 
-              source={require("../../assets/fuzzyload.png")}
-              style={{ 
-                width: 150, 
-                height: 150, 
-                marginBottom: 32, 
-                borderRadius: 30,
-                shadowColor: '#000',
-                shadowOffset: {
-                  width: 0,
-                  height: 8,
-                },
-                shadowOpacity: 0.3,
-                shadowRadius: 12,
+          <View className="flex-1 px-6 pt-8">
+            <View
+              style={{
+                backgroundColor: theme.card,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: theme.cardBorder,
               }}
-            />
-            <Text className={`text-3xl ${theme.text} font-bold mb-4`}>
-              Your soul-bonding space
-            </Text>
-            <Text className={`text-lg ${theme.text} text-center mb-8 leading-7 font-medium`}>
-              Fuzzy is where relationships deepen and new connections bloom. Whether strengthening bonds with loved ones or growing closer to new people through connections, this is your space for meaningful intimacy.
-            </Text>
-            <Text className={`text-base ${theme.textMedium} text-center font-semibold mb-12`}>
-              Start by adding friends and selecting a chat
-            </Text>
-            
-            <View className="border-t border-white/10 pt-6 mt-auto">
-              <Text className={`text-sm ${theme.textLight} text-center mb-3`}>
-                Created by Meli
+              className="p-6 mb-6 items-center"
+            >
+              <Image
+                source={require("../../assets/fuzzyload.png")}
+                style={{
+                  width: 100,
+                  height: 100,
+                  marginBottom: 20,
+                  borderRadius: 24,
+                }}
+              />
+              <Text className="text-2xl text-white font-bold mb-3 text-center">
+                Your soul-bonding space
               </Text>
-              <View className="flex-row justify-center gap-6 mb-4">
-                <TouchableOpacity onPress={() => Linking.openURL('https://github.com/unseenmeli')}>
-                  <Text className={`text-sm ${theme.textMedium}`}>GitHub</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => Linking.openURL('https://x.com/unseenmeli_')}>
-                  <Text className={`text-sm ${theme.textMedium}`}>X</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => Linking.openURL('https://www.instagram.com/meli.yd/')}>
-                  <Text className={`text-sm ${theme.textMedium}`}>Instagram</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => Linking.openURL('https://www.linkedin.com/in/dave-asanidze-325b11309?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app')}>
-                  <Text className={`text-sm ${theme.textMedium}`}>LinkedIn</Text>
-                </TouchableOpacity>
-              </View>
-              <Text className={`text-xs ${theme.textLight} text-center mb-1`}>
-                Want to contact me?
+              <Text className="text-base text-white/80 text-center leading-6">
+                Fuzzy is where relationships deepen and new connections bloom. Whether strengthening bonds with loved ones or growing closer to new people through connections, this is your space for meaningful intimacy.
               </Text>
-              <TouchableOpacity onPress={() => Linking.openURL('mailto:unseenmeli@gmail.com')}>
-                <Text className={`text-sm ${theme.textMedium} text-center font-medium`}>unseenmeli@gmail.com</Text>
+            </View>
+
+            <View
+              style={{
+                backgroundColor: theme.card,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: theme.cardBorder,
+              }}
+              className="p-5 mb-6"
+            >
+              <TouchableOpacity
+                style={{
+                  backgroundColor: theme.innerCard,
+                  borderColor: theme.innerCardBorder,
+                }}
+                className="flex-row items-center justify-between rounded-xl p-4 border"
+                onPress={() => router.push("/chats")}
+              >
+                <View className="flex-row items-center">
+                  <Text className="text-3xl mr-4">👋</Text>
+                  <View>
+                    <Text className={`font-semibold text-lg ${theme.textMedium}`}>
+                      Get Started
+                    </Text>
+                    <Text className="text-white/60 text-sm">
+                      Add friends and select a chat
+                    </Text>
+                  </View>
+                </View>
+                <Text className={`${theme.textAccent} text-2xl`}>›</Text>
               </TouchableOpacity>
             </View>
+
+            <View
+              style={{
+                backgroundColor: theme.card,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: theme.cardBorder,
+              }}
+              className="p-5"
+            >
+              <Text className="text-white/60 text-center text-sm mb-4">
+                Created by Meli
+              </Text>
+              <View className="flex-row justify-center flex-wrap gap-4 mb-4">
+                <TouchableOpacity
+                  onPress={() => Linking.openURL('https://github.com/unseenmeli')}
+                  className="bg-white/10 px-4 py-2 rounded-full"
+                >
+                  <Text className="text-white/80 text-sm">GitHub</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL('https://x.com/unseenmeli_')}
+                  className="bg-white/10 px-4 py-2 rounded-full"
+                >
+                  <Text className="text-white/80 text-sm">X</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL('https://www.instagram.com/meli.yd/')}
+                  className="bg-white/10 px-4 py-2 rounded-full"
+                >
+                  <Text className="text-white/80 text-sm">Instagram</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => Linking.openURL('https://www.linkedin.com/in/dave-asanidze-325b11309')}
+                  className="bg-white/10 px-4 py-2 rounded-full"
+                >
+                  <Text className="text-white/80 text-sm">LinkedIn</Text>
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                onPress={() => Linking.openURL('mailto:unseenmeli@gmail.com')}
+                className="items-center"
+              >
+                <Text className="text-white/50 text-xs mb-1">Contact</Text>
+                <Text className="text-white/70 text-sm">unseenmeli@gmail.com</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View className="h-8" />
           </View>
         )}
       </ScrollView>

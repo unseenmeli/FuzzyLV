@@ -94,31 +94,32 @@ export default function Profile() {
     if (!result.canceled && result.assets[0] && userProfile) {
       const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
       try {
-        await db.transact([
+        const transactions = [
           db.tx.profiles[userProfile.id].update({
             photo: base64Image,
             emoji: null
           })
-        ]);
-        
+        ];
+
         for (const connection of connections) {
           if (connection.senderUsername === userProfile.username) {
-            await db.transact([
+            transactions.push(
               db.tx.connections[connection.id].update({
                 senderPhoto: base64Image,
                 senderEmoji: null
               })
-            ]);
+            );
           } else if (connection.receiverUsername === userProfile.username) {
-            await db.transact([
+            transactions.push(
               db.tx.connections[connection.id].update({
                 receiverPhoto: base64Image,
                 receiverEmoji: null
               })
-            ]);
+            );
           }
         }
-        
+
+        await db.transact(transactions);
         setShowPhotoOptions(false);
       } catch (error) {
         console.error("Error updating profile photo:", error);
@@ -130,31 +131,32 @@ export default function Profile() {
   const handleEmojiSelect = async (emoji: string) => {
     if (userProfile) {
       try {
-        await db.transact([
+        const transactions = [
           db.tx.profiles[userProfile.id].update({
             emoji: emoji,
             photo: null
           })
-        ]);
-        
+        ];
+
         for (const connection of connections) {
           if (connection.senderUsername === userProfile.username) {
-            await db.transact([
+            transactions.push(
               db.tx.connections[connection.id].update({
                 senderEmoji: emoji,
                 senderPhoto: null
               })
-            ]);
+            );
           } else if (connection.receiverUsername === userProfile.username) {
-            await db.transact([
+            transactions.push(
               db.tx.connections[connection.id].update({
                 receiverEmoji: emoji,
                 receiverPhoto: null
               })
-            ]);
+            );
           }
         }
-        
+
+        await db.transact(transactions);
         setShowEmojiPicker(false);
         setShowPhotoOptions(false);
       } catch (error) {
@@ -196,54 +198,55 @@ export default function Profile() {
 
       const oldUsername = userProfile.username;
 
-      await db.transact([
+      const transactions = [
         db.tx.profiles[userProfile.id].update({
           username: newUsername
         })
-      ]);
+      ];
 
       for (const connection of connections) {
         if (connection.senderUsername === oldUsername) {
-          await db.transact([
+          transactions.push(
             db.tx.connections[connection.id].update({
               senderUsername: newUsername
             })
-          ]);
+          );
         } else if (connection.receiverUsername === oldUsername) {
-          await db.transact([
+          transactions.push(
             db.tx.connections[connection.id].update({
               receiverUsername: newUsername
             })
-          ]);
+          );
         }
       }
 
       const allRelationships = await db.queryOnce({ relationships: {} });
-      const userRelationships = allRelationships.data?.relationships?.filter((r: any) => 
+      const userRelationships = allRelationships.data?.relationships?.filter((r: any) =>
         r.partnerUsername === oldUsername
       ) || [];
-      
+
       for (const rel of userRelationships) {
-        await db.transact([
+        transactions.push(
           db.tx.relationships[rel.id].update({
             partnerUsername: newUsername
           })
-        ]);
+        );
       }
 
       const allFriendships = await db.queryOnce({ friendships: {} });
-      const userFriendships = allFriendships.data?.friendships?.filter((f: any) => 
+      const userFriendships = allFriendships.data?.friendships?.filter((f: any) =>
         f.friendUsername === oldUsername
       ) || [];
-      
+
       for (const friend of userFriendships) {
-        await db.transact([
+        transactions.push(
           db.tx.friendships[friend.id].update({
             friendUsername: newUsername
           })
-        ]);
+        );
       }
 
+      await db.transact(transactions);
       setShowUsernameModal(false);
       setNewUsername("");
       Alert.alert("Success", "Username updated successfully");
@@ -379,33 +382,6 @@ export default function Profile() {
             <Text className={`${theme.textAccent} text-2xl`}>›</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity
-            style={{
-              backgroundColor: "rgba(251,146,60,0.1)",
-              borderColor: "rgba(251,146,60,0.3)",
-            }}
-            className="flex-row items-center justify-between rounded-xl p-4 mb-4 border"
-            onPress={async () => {
-              try {
-                await AsyncStorage.removeItem("ageVerified");
-                await AsyncStorage.removeItem("ageGroup");
-                await AsyncStorage.removeItem("birthDate");
-                await AsyncStorage.removeItem("spicyAgeVerified");
-                Alert.alert("Age Verification Reset", "Age verification has been cleared. Please restart the app to verify your age again.");
-              } catch (error) {
-                Alert.alert("Error", "Failed to reset age verification");
-              }
-            }}
-          >
-            <View className="flex-row items-center">
-              <Text className="text-3xl mr-4">🔄</Text>
-              <Text className="font-semibold text-lg text-orange-400">
-                Reset Age Verification
-              </Text>
-            </View>
-            <Text className="text-orange-400 text-2xl">›</Text>
-          </TouchableOpacity>
-
           <TouchableOpacity
             style={{
               backgroundColor: "rgba(239,68,68,0.1)",
