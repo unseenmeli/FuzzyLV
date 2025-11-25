@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from "expo-image-picker";
@@ -21,7 +21,6 @@ import {
   Clipboard,
   Animated,
   PanResponder,
-  Dimensions,
 } from "react-native";
 import { router } from "expo-router";
 import db from "@/utils/db";
@@ -52,6 +51,219 @@ interface MessageType {
 
 const quickReactions = ["❤️", "👍", "😂", "😮", "😢", "🔥", "🎉", "💯"];
 
+interface MessageItemProps {
+  msg: MessageType;
+  isMyMessage: boolean;
+  showUsername: boolean;
+  showSeen: boolean;
+  theme: any;
+  onLongPress: (msg: MessageType) => void;
+  onReply: (msg: MessageType) => void;
+  onImagePress: (uri: string) => void;
+  setScrollEnabled: (enabled: boolean) => void;
+}
+
+const MessageItem = React.memo(({
+  msg,
+  isMyMessage,
+  showUsername,
+  showSeen,
+  theme,
+  onLongPress,
+  onReply,
+  onImagePress,
+  setScrollEnabled
+}: MessageItemProps) => {
+  const translateX = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (evt, gestureState) => {
+      const shouldRespond = Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 15;
+      if (shouldRespond) {
+        setScrollEnabled(false);
+      }
+      return shouldRespond;
+    },
+    onPanResponderGrant: () => {
+      setScrollEnabled(false);
+    },
+    onPanResponderMove: (evt, gestureState) => {
+      const validSwipe = isMyMessage ? gestureState.dx < 0 : gestureState.dx > 0;
+
+      if (validSwipe) {
+        const limitedDx = isMyMessage
+          ? Math.max(gestureState.dx, -80)
+          : Math.min(gestureState.dx, 80);
+        translateX.setValue(limitedDx);
+
+        const distance = Math.abs(gestureState.dx);
+        const opacityValue = Math.min(distance / 50, 1);
+        opacity.setValue(opacityValue);
+      } else {
+        translateX.setValue(0);
+        opacity.setValue(0);
+      }
+    },
+    onPanResponderRelease: async (evt, gestureState) => {
+      setScrollEnabled(true);
+
+      const validSwipe = isMyMessage ? gestureState.dx < 0 : gestureState.dx > 0;
+      const distance = Math.abs(gestureState.dx);
+
+      if (validSwipe && distance > 40) {
+        onReply(msg);
+
+        try {
+          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        } catch (e) {}
+      }
+
+      Animated.parallel([
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 40,
+          friction: 8,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    },
+    onPanResponderTerminate: () => {
+      setScrollEnabled(true);
+
+      Animated.parallel([
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 40,
+          friction: 8,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    },
+  })).current;
+
+  return (
+    <View className={`mb-3 ${isMyMessage ? 'items-end' : 'items-start'}`}>
+      {showUsername && !isMyMessage && (
+        <Text className="text-white/50 text-xs mb-1 ml-2">
+          {msg.senderUsername}
+        </Text>
+      )}
+
+      <Animated.View
+        {...panResponder.panHandlers}
+        style={{
+          transform: [{ translateX }],
+          alignItems: isMyMessage ? 'flex-end' : 'flex-start',
+        }}
+      >
+        <Pressable
+          onLongPress={async () => {
+            Keyboard.dismiss();
+            try {
+              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            } catch (error) {}
+            onLongPress(msg);
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: isMyMessage ? theme.card : "rgba(255,255,255,0.1)",
+              borderColor: isMyMessage ? theme.cardBorder : "rgba(255,255,255,0.2)",
+              maxWidth: 280,
+            }}
+            className="rounded-2xl px-4 py-3 border"
+          >
+            {msg.replyTo && (
+              <View
+                style={{
+                  backgroundColor: "rgba(255,255,255,0.05)",
+                  borderLeftColor: theme.gradient[1],
+                  borderLeftWidth: 2,
+                }}
+                className="mb-2 p-2 rounded"
+              >
+                <Text className="text-white/50 text-xs mb-1">
+                  {msg.replyTo.senderUsername}
+                </Text>
+                <Text className="text-white/60 text-xs" numberOfLines={2}>
+                  {msg.replyTo.text}
+                </Text>
+              </View>
+            )}
+            {msg.image && (
+              <TouchableOpacity onPress={() => onImagePress(msg.image!)}>
+                <Image
+                  source={{ uri: msg.image }}
+                  style={{
+                    width: 200,
+                    height: 200,
+                    borderRadius: 10,
+                    marginBottom: msg.text !== "Photo" ? 8 : 0
+                  }}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+            )}
+            {msg.text !== "Photo" && (
+              <Text className={isMyMessage ? "text-white" : "text-white/90"}>
+                {msg.text}
+              </Text>
+            )}
+            <View className="flex-row items-center justify-between mt-1">
+              <Text className="text-white/40 text-xs">
+                {new Date(msg.createdAt).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </Text>
+              {isMyMessage && (
+                <Text className="text-white/40 text-xs ml-2">
+                  {msg.isRead ? '✓✓' : '✓'}
+                </Text>
+              )}
+            </View>
+          </View>
+        </Pressable>
+      </Animated.View>
+
+      {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+        <View
+          className={`flex-row flex-wrap mt-1 ${isMyMessage ? 'justify-end' : 'justify-start'}`}
+          style={{ maxWidth: 280 }}
+        >
+          <View className="bg-black/20 rounded-full px-2 py-1 flex-row">
+            {Object.entries(msg.reactions as Record<string, string>).map(([username, emoji]) => (
+              <Text key={username} className="text-sm">
+                {emoji}
+              </Text>
+            ))}
+            <Text className="text-white/40 text-xs ml-1 self-center">
+              {Object.keys(msg.reactions).length}
+            </Text>
+          </View>
+        </View>
+      )}
+      {showSeen && (
+        <Text className="text-white/30 text-xs mt-1 mr-2">
+          Seen
+        </Text>
+      )}
+    </View>
+  );
+});
+
 export default function Message() {
   const { user, isLoading: authLoading } = db.useAuth();
   const [message, setMessage] = useState("");
@@ -65,20 +277,6 @@ export default function Message() {
   const scrollStartY = useRef(0);
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
-  const [hasLoadError, setHasLoadError] = useState(false);
-  
-  const swipeAnimations = useRef<{ [key: string]: { translateX: Animated.Value, opacity: Animated.Value } }>({}).current;
-  const screenWidth = Dimensions.get('window').width;
-  
-  const getSwipeAnimation = (msgId: string) => {
-    if (!swipeAnimations[msgId]) {
-      swipeAnimations[msgId] = {
-        translateX: new Animated.Value(0),
-        opacity: new Animated.Value(0)
-      };
-    }
-    return swipeAnimations[msgId];
-  };
 
   const { data: profileData } = db.useQuery(
     user ? {
@@ -127,43 +325,49 @@ export default function Message() {
 
   const otherUsername = getOtherUsername();
 
+  const consistentChatId = useMemo(() => {
+    if (!userProfile?.username || !otherUsername || !choice) return null;
+    return getChatId(choice.activeType, userProfile.username, otherUsername);
+  }, [userProfile?.username, otherUsername, choice?.activeType]);
+
   const { data: messageData } = db.useQuery(
-    userProfile ? {
-      messages: {}
+    userProfile?.username && otherUsername && choice ? {
+      messages: {
+        $: {
+          where: {
+            chatType: choice.activeType,
+            or: [
+              { and: [{ senderUsername: userProfile.username }, { receiverUsername: otherUsername }] },
+              { and: [{ senderUsername: otherUsername }, { receiverUsername: userProfile.username }] }
+            ]
+          }
+        }
+      }
     } : {}
   );
 
-  const messages = React.useMemo(() => {
-    if (!messageData?.messages || !choice || !userProfile?.username || !otherUsername) {
-      setIsLoadingMessages(false);
+  const messages = useMemo(() => {
+    if (!messageData?.messages) {
       return [] as MessageType[];
     }
-
-    const chatId = getChatId(choice.activeType, userProfile.username, otherUsername);
-
-    const filtered = messageData.messages.filter((msg: any) => {
-      const msgChatIdMatches = msg.chatId === chatId;
-      const msgUsersMatch = 
-        (msg.senderUsername === userProfile.username && msg.receiverUsername === otherUsername) ||
-        (msg.senderUsername === otherUsername && msg.receiverUsername === userProfile.username);
-      
-      return msg.chatType === choice.activeType && (msgChatIdMatches || msgUsersMatch);
-    });
-
-    console.log("Filtered messages:", filtered.length, "from total:", messageData.messages.length);
-    console.log("Looking for chatType:", choice.activeType, "chatId:", chatId);
-
-    setIsLoadingMessages(false);
-    return filtered.sort((a: MessageType, b: MessageType) => a.createdAt - b.createdAt);
-  }, [messageData?.messages, choice, userProfile?.username, otherUsername]);
-  const theme = themes[choice?.activeType] || themes.relationship;
+    return [...messageData.messages].sort((a: MessageType, b: MessageType) => a.createdAt - b.createdAt);
+  }, [messageData?.messages]);
 
   useEffect(() => {
-    if (scrollViewRef.current) {
+    if (messageData !== undefined) {
+      setIsLoadingMessages(false);
+    }
+  }, [messageData]);
+  const theme = themes[choice?.activeType] || themes.relationship;
+
+  const prevMessageCount = useRef(0);
+
+  useEffect(() => {
+    if (scrollViewRef.current && messages.length > prevMessageCount.current) {
       scrollViewRef.current.scrollToEnd({ animated: true });
     }
-  }, [messages]);
-
+    prevMessageCount.current = messages.length;
+  }, [messages.length]);
 
   useEffect(() => {
     if (!messages || messages.length === 0 || !userProfile?.username) return;
@@ -173,11 +377,9 @@ export default function Message() {
     );
 
     if (unreadMessages.length > 0) {
-      Promise.all(
+      db.transact(
         unreadMessages.map(msg =>
-          db.transact([
-            db.tx.messages[msg.id].update({ isRead: true })
-          ])
+          db.tx.messages[msg.id].update({ isRead: true })
         )
       ).catch(error => {
         console.error("Error marking messages as read:", error);
@@ -185,12 +387,7 @@ export default function Message() {
     }
   }, [messages, userProfile?.username]);
 
-  const consistentChatId = React.useMemo(() => {
-    if (!userProfile?.username || !otherUsername || !choice) return null;
-    return getChatId(choice.activeType, userProfile.username, otherUsername);
-  }, [userProfile?.username, otherUsername, choice?.activeType]);
-
-  const handleReaction = async (emoji: string) => {
+  const handleReaction = useCallback(async (emoji: string) => {
     if (!selectedMessage || !userProfile?.username) return;
 
     try {
@@ -214,17 +411,17 @@ export default function Message() {
     } catch (error) {
       console.error("Error adding reaction:", error);
     }
-  };
+  }, [selectedMessage, userProfile?.username]);
 
-  const handleCopyMessage = () => {
+  const handleCopyMessage = useCallback(() => {
     if (selectedMessage) {
       Clipboard.setString(selectedMessage.text);
       setShowMessageActions(false);
       setSelectedMessage(null);
     }
-  };
+  }, [selectedMessage]);
 
-  const handleUnsendMessage = async () => {
+  const handleUnsendMessage = useCallback(async () => {
     if (!selectedMessage || selectedMessage.senderUsername !== userProfile?.username) return;
 
     try {
@@ -236,17 +433,17 @@ export default function Message() {
     } catch (error) {
       console.error("Error deleting message:", error);
     }
-  };
+  }, [selectedMessage, userProfile?.username]);
 
-  const handleReplyToMessage = () => {
+  const handleReplyToMessage = useCallback(() => {
     if (selectedMessage) {
       setReplyingTo(selectedMessage);
       setShowMessageActions(false);
       setSelectedMessage(null);
     }
-  };
+  }, [selectedMessage]);
 
-  const pickImage = async () => {
+  const pickImage = useCallback(async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false,
@@ -257,9 +454,9 @@ export default function Message() {
     if (!result.canceled && result.assets[0]) {
       setSelectedImage(`data:image/jpeg;base64,${result.assets[0].base64}`);
     }
-  };
+  }, []);
 
-  const saveImage = async () => {
+  const saveImage = useCallback(async () => {
     if (!viewingImage) return;
 
     try {
@@ -283,20 +480,12 @@ export default function Message() {
       console.error('Error saving image:', error);
       Alert.alert('Error', 'Failed to save image');
     }
-  };
+  }, [viewingImage]);
 
-  const sendMessage = async () => {
+  const sendMessage = useCallback(async () => {
     const messageText = message.trim();
 
     if ((!messageText && !selectedImage) || !user || !userProfile || !choice || !otherUsername || !consistentChatId) {
-      console.log("Missing required data:", {
-        message: messageText,
-        user: !!user,
-        userProfile: !!userProfile,
-        choice: !!choice,
-        otherUsername,
-        consistentChatId
-      });
       return;
     }
 
@@ -304,16 +493,8 @@ export default function Message() {
 
     try {
       const messageId = id();
-      console.log("Sending message with:", {
-        chatType: choice.activeType,
-        chatId: consistentChatId,
-        senderUsername: userProfile.username,
-        receiverUsername: otherUsername,
-        text: messageText,
-        replyTo: replyingTo?.id
-      });
 
-      const messageData: any = {
+      const msgData: any = {
         text: messageText || "Photo",
         chatType: choice.activeType,
         chatId: consistentChatId,
@@ -324,11 +505,11 @@ export default function Message() {
       };
 
       if (selectedImage) {
-        messageData.image = selectedImage;
+        msgData.image = selectedImage;
       }
 
       if (replyingTo) {
-        messageData.replyTo = {
+        msgData.replyTo = {
           id: replyingTo.id,
           text: replyingTo.text,
           senderUsername: replyingTo.senderUsername
@@ -337,14 +518,12 @@ export default function Message() {
 
       await db.transact(
         db.tx.messages[messageId]
-          .update(messageData)
+          .update(msgData)
           .link({ sender: user.id })
       );
 
       setReplyingTo(null);
       setSelectedImage(null);
-
-      console.log("Message sent successfully!");
 
       try {
         const recipientResult = await db.queryOnce({
@@ -364,7 +543,6 @@ export default function Message() {
             messageText,
             choice.activeType as 'relationship' | 'friendship' | 'connection'
           );
-          console.log("Push notification sent to:", otherUsername);
         }
       } catch (notifError) {
         console.error("Error sending push notification:", notifError);
@@ -373,7 +551,24 @@ export default function Message() {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message");
     }
-  };
+  }, [message, selectedImage, user, userProfile, choice, otherUsername, consistentChatId, replyingTo]);
+
+  const handleMessageLongPress = useCallback((msg: MessageType) => {
+    setSelectedMessage(msg);
+    setShowMessageActions(true);
+  }, []);
+
+  const handleReply = useCallback((msg: MessageType) => {
+    setReplyingTo({
+      id: msg.id,
+      text: msg.text,
+      senderUsername: msg.senderUsername
+    });
+  }, []);
+
+  const handleImagePress = useCallback((uri: string) => {
+    setViewingImage(uri);
+  }, []);
 
   if (!choice) {
     return (
@@ -480,214 +675,25 @@ export default function Message() {
               const isMyMessage = msg.senderUsername === userProfile?.username;
               const prevMsg = index > 0 ? messages[index - 1] : null;
               const nextMsg = index < messages.length - 1 ? messages[index + 1] : null;
-              const isLastMessage = index === messages.length - 1;
 
               const showUsername = !prevMsg || prevMsg.senderUsername !== msg.senderUsername;
-
               const showSeen = isMyMessage &&
                                msg.isRead &&
                                (!nextMsg || nextMsg.senderUsername !== msg.senderUsername);
-              
-              const { translateX, opacity } = getSwipeAnimation(msg.id);
-              
-              const panResponder = PanResponder.create({
-                onStartShouldSetPanResponder: () => false,
-                onMoveShouldSetPanResponder: (evt, gestureState) => {
-                  const shouldRespond = Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 15;
-                  if (shouldRespond) {
-                    setScrollEnabled(false);
-                  }
-                  return shouldRespond;
-                },
-                onPanResponderGrant: () => {
-                  setScrollEnabled(false);
-                },
-                onPanResponderMove: (evt, gestureState) => {
-                  const validSwipe = isMyMessage ? gestureState.dx < 0 : gestureState.dx > 0;
-                  
-                  if (validSwipe) {
-                    const limitedDx = isMyMessage 
-                      ? Math.max(gestureState.dx, -80)
-                      : Math.min(gestureState.dx, 80);
-                    translateX.setValue(limitedDx);
-                    
-                    const distance = Math.abs(gestureState.dx);
-                    const opacityValue = Math.min(distance / 50, 1);
-                    opacity.setValue(opacityValue);
-                  } else {
-                    translateX.setValue(0);
-                    opacity.setValue(0);
-                  }
-                },
-                onPanResponderRelease: async (evt, gestureState) => {
-                  setScrollEnabled(true);
-                  
-                  const validSwipe = isMyMessage ? gestureState.dx < 0 : gestureState.dx > 0;
-                  const distance = Math.abs(gestureState.dx);
-                  
-                  if (validSwipe && distance > 40) {
-                    setReplyingTo({
-                      id: msg.id,
-                      text: msg.text,
-                      senderUsername: msg.senderUsername
-                    });
-                    
-                    try {
-                      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                    } catch (e) {}
-                  }
-                  
-                  Animated.parallel([
-                    Animated.spring(translateX, {
-                      toValue: 0,
-                      useNativeDriver: true,
-                      tension: 40,
-                      friction: 8,
-                    }),
-                    Animated.timing(opacity, {
-                      toValue: 0,
-                      duration: 200,
-                      useNativeDriver: true,
-                    }),
-                  ]).start();
-                },
-                onPanResponderTerminate: () => {
-                  setScrollEnabled(true);
-                  
-                  Animated.parallel([
-                    Animated.spring(translateX, {
-                      toValue: 0,
-                      useNativeDriver: true,
-                      tension: 40,
-                      friction: 8,
-                    }),
-                    Animated.timing(opacity, {
-                      toValue: 0,
-                      duration: 200,
-                      useNativeDriver: true,
-                    }),
-                  ]).start();
-                },
-              });
 
               return (
-                <View
+                <MessageItem
                   key={msg.id}
-                  className={`mb-3 ${isMyMessage ? 'items-end' : 'items-start'}`}
-                >
-                  {showUsername && !isMyMessage && (
-                    <Text className="text-white/50 text-xs mb-1 ml-2">
-                      {msg.senderUsername}
-                    </Text>
-                  )}
-                  
-                  <Animated.View
-                    {...panResponder.panHandlers}
-                    style={{
-                      transform: [{ translateX }],
-                      alignItems: isMyMessage ? 'flex-end' : 'flex-start',
-                    }}
-                  >
-                    <Pressable
-                      onLongPress={async () => {
-                        Keyboard.dismiss();
-                        try {
-                          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                        } catch (error) {
-                          console.log('Haptics not available:', error);
-                        }
-                        setSelectedMessage(msg);
-                        setShowMessageActions(true);
-                      }}
-                    >
-                    <View
-                    style={{
-                      backgroundColor: isMyMessage
-                        ? theme.card
-                        : "rgba(255,255,255,0.1)",
-                      borderColor: isMyMessage
-                        ? theme.cardBorder
-                        : "rgba(255,255,255,0.2)",
-                      maxWidth: '75%',
-                    }}
-                    className="rounded-2xl px-4 py-3 border"
-                  >
-                    {msg.replyTo && (
-                      <View
-                        style={{
-                          backgroundColor: "rgba(255,255,255,0.05)",
-                          borderLeftColor: theme.gradient[1],
-                          borderLeftWidth: 2,
-                        }}
-                        className="mb-2 p-2 rounded"
-                      >
-                        <Text className="text-white/50 text-xs mb-1">
-                          {msg.replyTo.senderUsername}
-                        </Text>
-                        <Text className="text-white/60 text-xs" numberOfLines={2}>
-                          {msg.replyTo.text}
-                        </Text>
-                      </View>
-                    )}
-                    {msg.image && (
-                      <TouchableOpacity onPress={() => setViewingImage(msg.image)}>
-                        <Image
-                          source={{ uri: msg.image }}
-                          style={{
-                            width: 200,
-                            height: 200,
-                            borderRadius: 10,
-                            marginBottom: msg.text !== "Photo" ? 8 : 0
-                          }}
-                          resizeMode="cover"
-                        />
-                      </TouchableOpacity>
-                    )}
-                    {msg.text !== "Photo" && (
-                      <Text className={isMyMessage ? "text-white" : "text-white/90"}>
-                        {msg.text}
-                      </Text>
-                    )}
-                    <View className="flex-row items-center justify-between mt-1">
-                      <Text className="text-white/40 text-xs">
-                        {new Date(msg.createdAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </Text>
-                      {isMyMessage && (
-                        <Text className="text-white/40 text-xs ml-2">
-                          {msg.isRead ? '✓✓' : '✓'}
-                        </Text>
-                      )}
-                    </View>
-                  </View>
-                    </Pressable>
-                  </Animated.View>
-                  
-                  {msg.reactions && Object.keys(msg.reactions).length > 0 && (
-                    <View
-                      className={`flex-row flex-wrap mt-1 ${isMyMessage ? 'justify-end' : 'justify-start'}`}
-                      style={{ maxWidth: '75%' }}
-                    >
-                      <View className="bg-black/20 rounded-full px-2 py-1 flex-row">
-                        {Object.entries(msg.reactions as Record<string, string>).map(([username, emoji], index) => (
-                          <Text key={username} className="text-sm">
-                            {emoji}
-                          </Text>
-                        ))}
-                        <Text className="text-white/40 text-xs ml-1 self-center">
-                          {Object.keys(msg.reactions).length}
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-                  {showSeen && (
-                    <Text className="text-white/30 text-xs mt-1 mr-2">
-                      Seen
-                    </Text>
-                  )}
-                </View>
+                  msg={msg}
+                  isMyMessage={isMyMessage}
+                  showUsername={showUsername}
+                  showSeen={showSeen}
+                  theme={theme}
+                  onLongPress={handleMessageLongPress}
+                  onReply={handleReply}
+                  onImagePress={handleImagePress}
+                  setScrollEnabled={setScrollEnabled}
+                />
               );
             })
           )}

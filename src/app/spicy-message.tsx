@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import * as Haptics from "expo-haptics";
 import { BlurView } from "expo-blur";
 import * as ImagePicker from "expo-image-picker";
@@ -22,7 +22,6 @@ import {
   Clipboard,
   Animated,
   PanResponder,
-  Dimensions,
 } from "react-native";
 import { safeNavigate } from "@/utils/navigation";
 import db from "@/utils/db";
@@ -179,21 +178,6 @@ export default function SpicyMessage() {
   const [userAgeGroup, setUserAgeGroup] = useState<"teen" | "adult" | null>(null);
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
-  const swipeAnimations = useRef<{
-    [key: string]: { translateX: Animated.Value; opacity: Animated.Value };
-  }>({}).current;
-  const screenWidth = Dimensions.get("window").width;
-
-  const getSwipeAnimation = (msgId: string) => {
-    if (!swipeAnimations[msgId]) {
-      swipeAnimations[msgId] = {
-        translateX: new Animated.Value(0),
-        opacity: new Animated.Value(0),
-      };
-    }
-    return swipeAnimations[msgId];
-  };
-
   const { data: profileData } = db.useQuery(
     user
       ? {
@@ -223,29 +207,30 @@ export default function SpicyMessage() {
 
   const otherUsername = getOtherUsername();
 
+  const roomId = useMemo(() => {
+    if (!userProfile?.username || !otherUsername) return null;
+    return [userProfile.username, otherUsername].sort().join("-");
+  }, [userProfile?.username, otherUsername]);
+
   const { data: messageData } = db.useQuery(
-    userProfile
+    userProfile?.username && otherUsername && roomId
       ? {
-          messages: {},
+          messages: {
+            $: {
+              where: {
+                chatType: "spicy",
+                chatId: roomId
+              }
+            }
+          },
         }
       : {}
   );
 
-  const messages = React.useMemo(() => {
-    if (
-      !messageData?.messages ||
-      !choice ||
-      !userProfile?.username ||
-      !otherUsername
-    )
-      return [];
-
-    const roomId = [userProfile.username, otherUsername].sort().join("-");
+  const messages = useMemo(() => {
+    if (!messageData?.messages) return [];
 
     return messageData.messages
-      .filter((msg: any) => {
-        return msg.chatType === "spicy" && msg.chatId === roomId;
-      })
       .map((msg: any) => {
         try {
           const parsed = JSON.parse(msg.text);
@@ -265,7 +250,7 @@ export default function SpicyMessage() {
         }
       })
       .sort((a: any, b: any) => a.createdAt - b.createdAt);
-  }, [messageData, choice, userProfile, otherUsername]);
+  }, [messageData?.messages]);
 
   useEffect(() => {
     if (!messages || !userProfile?.username) return;
@@ -275,13 +260,13 @@ export default function SpicyMessage() {
     );
 
     if (unreadMessages.length > 0) {
-      Promise.all(
+      db.transact(
         unreadMessages.map((msg) =>
-          db.transact([db.tx.messages[msg.id].update({ isRead: true })])
+          db.tx.messages[msg.id].update({ isRead: true })
         )
       ).catch(console.error);
     }
-  }, [messages, userProfile]);
+  }, [messages, userProfile?.username]);
 
   useEffect(() => {
     const checkAgeVerification = async () => {
@@ -309,9 +294,9 @@ export default function SpicyMessage() {
     checkAgeVerification();
   }, [userProfile]);
 
-  const sendMessage = async () => {
+  const sendMessage = useCallback(async () => {
     if (!message.trim() && !selectedImage) return;
-    if (!activeChat || !user || !userProfile || !otherUsername) return;
+    if (!activeChat || !user || !userProfile || !otherUsername || !roomId) return;
 
     const messageText = message.trim();
     setMessage("");
@@ -320,7 +305,6 @@ export default function SpicyMessage() {
 
     try {
       const messageId = id();
-      const roomId = [userProfile.username, otherUsername].sort().join("-");
       const messageContent: any = {
         text: messageText || "",
         chatType: "spicy",
@@ -384,9 +368,9 @@ export default function SpicyMessage() {
       console.error("Error sending message:", error);
       Alert.alert("Error", "Failed to send message");
     }
-  };
+  }, [message, selectedImage, activeChat, user, userProfile, otherUsername, roomId, replyingTo]);
 
-  const handleReaction = async (emoji: string) => {
+  const handleReaction = useCallback(async (emoji: string) => {
     if (!selectedMessage || !userProfile?.username) return;
 
     try {
@@ -410,7 +394,7 @@ export default function SpicyMessage() {
     } catch (error) {
       console.error("Error adding reaction:", error);
     }
-  };
+  }, [selectedMessage, userProfile?.username]);
 
   const deleteMessage = async () => {
     if (!selectedMessage || !user) return;
