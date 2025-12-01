@@ -11,6 +11,8 @@ import { GradientBackground, themes } from "@/utils/shared";
 import db from "@/utils/db";
 import { id } from "@instantdb/react-native";
 import pushNotificationService from "@/services/pushNotificationService";
+import { safeNavigate } from "@/utils/navigation";
+import LoadingSpinner from "@/components/LoadingSpinner";
 
 export default function AddChat() {
   const { user } = db.useAuth();
@@ -156,7 +158,7 @@ export default function AddChat() {
       Alert.alert(
         "Invitation Sent!", 
         `Invitation sent to ${targetUsername}`,
-        [{ text: "OK", onPress: () => router.back() }]
+        [{ text: "OK", onPress: () => safeNavigate.back() }]
       );
     } catch (error) {
       console.error("Error sending invitation:", error);
@@ -185,7 +187,7 @@ export default function AddChat() {
           <View className="h-24">
             <View className="flex-row items-center h-full px-4">
               <TouchableOpacity
-                onPress={() => router.back()}
+                onPress={() => safeNavigate.back()}
                 className="bg-white/10 rounded-full p-3 mr-4 border border-white/20"
               >
                 <Text className="text-white text-lg font-bold">‹</Text>
@@ -204,7 +206,7 @@ export default function AddChat() {
             Connect with people using their friend code first, then you can invite them to chat!
           </Text>
           <TouchableOpacity
-            onPress={() => router.push("/chats")}
+            onPress={() => safeNavigate.push("/chats")}
             style={{
               backgroundColor: theme.card,
               borderColor: theme.cardBorder,
@@ -236,7 +238,7 @@ export default function AddChat() {
         <View className="h-24">
           <View className="flex-row items-center h-full px-4">
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => safeNavigate.back()}
               className="bg-white/10 rounded-full p-3 mr-4 border border-white/20"
             >
               <Text className="text-white text-lg font-bold">‹</Text>

@@ -4,6 +4,7 @@ import { router } from "expo-router";
 import db from "@/utils/db";
 import Login from "@/components/Login";
 import UsernameSetup from "@/components/UsernameSetup";
+import AgeVerification from "@/components/AgeVerification";
 import { GradientBackground, themes } from "@/utils/shared";
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
@@ -12,6 +13,9 @@ import * as ImagePicker from "expo-image-picker";
 import { id } from "@instantdb/react-native";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import NavigationWrapper from "@/components/NavigationWrapper";
+import { safeNavigate } from "@/utils/navigation";
+import LoadingSpinner from "@/components/LoadingSpinner";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const availableEmojis = [
   "😊", "😎", "🤓", "😇", "🤩", "😘", "🥰", "😍", "🤗", "🤝",
@@ -29,19 +33,16 @@ export default function index() {
     user = auth.user;
     isLoading = auth.isLoading;
   } catch (error) {
-    console.warn("Navigation context not ready:", error);
-    // Return loading state while navigation initializes
     return (
-      <View className="flex-1">
-        <GradientBackground colors={themes.relationship.gradient} />
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-white text-xl">Loading...</Text>
-        </View>
+      <View style={{ flex: 1, backgroundColor: '#FF8FA3', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: 'white', fontSize: 20 }}>Loading...</Text>
       </View>
     );
   }
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const [ageVerified, setAgeVerified] = useState<boolean | null>(null);
+  const [ageGroup, setAgeGroup] = useState<"teen" | "adult" | null>(null);
 
   const { data: profileData } = db.useQuery(
     user
@@ -53,6 +54,28 @@ export default function index() {
 
   const userProfile = profileData?.profiles?.[0];
   const [pushToken, setPushToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    const checkAgeVerification = async () => {
+      try {
+        if (userProfile?.ageGroup) {
+          setAgeVerified(true);
+          setAgeGroup(userProfile.ageGroup as "teen" | "adult");
+          await AsyncStorage.setItem("ageVerified", "true");
+          await AsyncStorage.setItem("ageGroup", userProfile.ageGroup);
+        } else {
+          const verified = await AsyncStorage.getItem("ageVerified");
+          const group = await AsyncStorage.getItem("ageGroup");
+          setAgeVerified(verified === "true");
+          setAgeGroup(group as "teen" | "adult" | null);
+        }
+      } catch (error) {
+        console.error("Error checking age verification:", error);
+        setAgeVerified(false);
+      }
+    };
+    checkAgeVerification();
+  }, [userProfile]);
 
   useEffect(() => {
     if (!userProfile || !Device.isDevice) return;
@@ -136,6 +159,46 @@ export default function index() {
   const activeChat = getActiveChat();
   const theme = themes[choice?.activeType] || themes.relationship;
 
+  const handleSelectChat = async (type: string, chatId: string, name: string, emoji: string) => {
+    if (!user) return;
+    
+    try {
+      const { data: choiceData } = await db.queryOnce({
+        choice: { $: { where: { "owner.id": user.id } } },
+      });
+
+      const existingChoice = choiceData?.choice?.[0];
+
+      if (existingChoice) {
+        await db.transact(
+          db.tx.choice[existingChoice.id].update({
+            activeType: type,
+            activeId: chatId,
+            activeName: name,
+            activeEmoji: emoji,
+            updatedAt: Date.now(),
+          })
+        );
+      } else {
+        const newChoiceId = id();
+        await db.transact(
+          db.tx.choice[newChoiceId]
+            .update({
+              activeType: type,
+              activeId: chatId,
+              activeName: name,
+              activeEmoji: emoji,
+              updatedAt: Date.now(),
+            })
+            .link({ owner: user.id })
+        );
+      }
+
+    } catch (error) {
+      console.error("Error selecting chat:", error);
+    }
+  };
+
   const pickImage = async () => {
     if (!activeChat || !choice) return;
     
@@ -206,14 +269,24 @@ export default function index() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || ageVerified === null) {
     return (
-      <View className="flex-1">
-        <GradientBackground colors={themes.relationship.gradient} />
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-white text-xl">Loading...</Text>
-        </View>
+      <View style={{ flex: 1, backgroundColor: '#FF8FA3', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: 'white', fontSize: 20 }}>Loading...</Text>
       </View>
+    );
+  }
+
+  if (!ageVerified) {
+    return (
+      <AgeVerification
+        onVerified={(group) => {
+          setAgeVerified(true);
+          setAgeGroup(group);
+        }}
+        user={user}
+        userProfile={userProfile}
+      />
     );
   }
 
@@ -223,11 +296,8 @@ export default function index() {
 
   if (profileData === undefined) {
     return (
-      <View className="flex-1">
-        <GradientBackground colors={themes.relationship.gradient} />
-        <View className="flex-1 items-center justify-center">
-          <Text className="text-white text-xl">Loading profile...</Text>
-        </View>
+      <View style={{ flex: 1, backgroundColor: '#FF8FA3', justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={{ color: 'white', fontSize: 20 }}>Loading profile...</Text>
       </View>
     );
   }
@@ -252,6 +322,27 @@ export default function index() {
         }}
         className="w-full shadow-xl z-10"
       >
+        <TouchableOpacity
+          onPress={() => router.push("/chats")}
+          className={`absolute right-4 z-20 bg-white/10 rounded-full p-2 border-2 ${theme.borderAccent} items-center justify-center`}
+          style={{ 
+            top: "50%",
+            transform: [{ translateY: 15 }],
+            width: 40,
+            height: 40,
+          }}
+        >
+          <Image 
+            source={require("../../chat.png")}
+            style={{ 
+              width: 24,
+              height: 24,
+              resizeMode: "contain",
+              tintColor: "white"
+            }}
+          />
+        </TouchableOpacity>
+        
         <View className="flex-1 items-end flex-row pb-4">
           {choice ? (
             <View className="flex-row items-center w-full">
@@ -276,7 +367,7 @@ export default function index() {
                   </View>
                 )}
               </TouchableOpacity>
-              <View className="flex-1 items-center pr-24">
+              <View className="flex-1 items-center pr-12">
                 <Text className="text-4xl text-white font-bold">
                   {choice?.activeName}
                 </Text>
@@ -368,7 +459,7 @@ export default function index() {
                 borderColor: theme.innerCardBorder,
               }}
               className="flex-row items-center justify-between rounded-xl p-4 border mb-4"
-              onPress={() => router.push("/notes")}
+              onPress={() => safeNavigate.push("/notes")}
             >
               <View className="flex-row items-center">
                 <Text className="text-4xl mr-4">
@@ -381,6 +472,23 @@ export default function index() {
               <Text className={`${theme.textAccent} text-2xl`}>›</Text>
             </TouchableOpacity>
 
+            <TouchableOpacity
+              style={{
+                backgroundColor: theme.innerCard,
+                borderColor: theme.innerCardBorder,
+              }}
+              className="flex-row items-center justify-between rounded-xl p-4 border mb-4"
+              onPress={() => safeNavigate.push("/distance")}
+            >
+              <View className="flex-row items-center">
+                <Text className="text-4xl mr-4">📍</Text>
+                <Text className={`font-semibold text-lg ${theme.textMedium}`}>
+                  Distance
+                </Text>
+              </View>
+              <Text className={`${theme.textAccent} text-2xl`}>›</Text>
+            </TouchableOpacity>
+
             {choice?.activeType === "relationship" && (
               <TouchableOpacity
                 style={{
@@ -388,7 +496,7 @@ export default function index() {
                   borderColor: theme.innerCardBorder,
                 }}
                 className="flex-row items-center justify-between rounded-xl p-4 border"
-                onPress={() => router.push("/finger-tap")}
+                onPress={() => safeNavigate.push("/finger-tap")}
               >
                 <View className="flex-row items-center">
                   <Text className="text-4xl mr-4">👆</Text>
@@ -405,7 +513,7 @@ export default function index() {
 
         <View className="w-full items-center my-6">
           <Text className={`text-2xl font-bold p-2 ${theme.text} mb-3`}>
-            Chats
+            Messages
           </Text>
           <View
             style={{
@@ -422,22 +530,27 @@ export default function index() {
                 borderColor: theme.innerCardBorder,
               }}
               className="flex-row items-center justify-between mb-4 rounded-xl p-4 border"
-              onPress={() => router.push("/message")}
+              onPress={() => safeNavigate.push("/message")}
             >
               <View className="flex-row items-center">
-                <Text className="text-4xl mr-4">💬</Text>
-                <Text className={`font-semibold text-lg ${theme.textMedium}`}>
-                  Message
-                </Text>
+                <Text className="text-4xl mr-4">✉️</Text>
+                <View>
+                  <Text className={`font-semibold text-lg ${theme.textMedium}`}>
+                    Current Chat
+                  </Text>
+                  <Text className={`text-sm ${theme.textAccent} mt-1`}>
+                    Message {choice?.activeName || "selected chat"}
+                  </Text>
+                </View>
               </View>
               <Text className={`${theme.textAccent} text-2xl`}>›</Text>
             </TouchableOpacity>
 
-            {choice?.activeType === "relationship" ? (
+            {choice?.activeType === "relationship" && ageGroup === "adult" ? (
               <TouchableOpacity
                 style={{ backgroundColor: "rgba(255,255,255,0.05)" }}
                 className="flex-row items-center justify-between rounded-xl p-4 border border-pink-200/30"
-                onPress={() => router.push("/spicy-message")}
+                onPress={() => safeNavigate.push("/spicy-message")}
               >
                 <View className="flex-row items-center">
                   <View className="bg-red-500/80 rounded-md px-2 py-0.5 mr-3">
@@ -522,20 +635,18 @@ export default function index() {
         className="bottom-0 left-0 right-0"
       >
         <View className="flex-row justify-around items-center py-4 pb-8">
-          <TouchableOpacity className="items-center px-4">
-            <Text className={`text-2xl ${theme.textAccent}`}>⌂♡</Text>
+          <TouchableOpacity className="items-center px-6">
+            <Text className={`text-2xl ${theme.textAccent}`}>
+              {choice?.activeType === "relationship" ? "♡" : "⌂"}
+            </Text>
+            <Text className={`text-xs mt-1 ${theme.textAccent}`}>Home</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            className="items-center px-4"
-            onPress={() => router.push("/chats")}
-          >
-            <Text className={`text-2xl opacity-50 ${theme.textAccent}`}>◭</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            className="items-center px-4"
-            onPress={() => router.replace("/profile")}
+            className="items-center px-6"
+            onPress={() => safeNavigate.replace("/profile")}
           >
             <Text className={`text-2xl opacity-50 ${theme.textAccent}`}>◔</Text>
+            <Text className={`text-xs mt-1 opacity-50 ${theme.textAccent}`}>Profile</Text>
           </TouchableOpacity>
         </View>
       </View>

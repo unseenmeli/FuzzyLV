@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from 'expo-media-library';
-import * as FileSystem from 'expo-file-system';
+import { documentDirectory, writeAsStringAsync } from 'expo-file-system/legacy';
 import {
   View,
   Text,
@@ -19,17 +19,41 @@ import {
   Pressable,
   Modal,
   Clipboard,
+  Animated,
+  PanResponder,
+  Dimensions,
 } from "react-native";
 import { router } from "expo-router";
 import db from "@/utils/db";
 import { GradientBackground, themes } from "@/utils/shared";
 import { id } from "@instantdb/react-native";
 import pushNotificationService from "@/services/pushNotificationService";
+import { safeNavigate } from "@/utils/navigation";
+import LoadingSpinner from "@/components/LoadingSpinner";
+import { getChatId, validateChatData } from "@/utils/chatHelpers";
+
+interface MessageType {
+  id: string;
+  text: string;
+  senderUsername: string;
+  receiverUsername: string;
+  createdAt: number;
+  isRead: boolean;
+  reactions?: Record<string, string>;
+  replyTo?: {
+    id: string;
+    text: string;
+    senderUsername: string;
+  };
+  image?: string;
+  chatType: string;
+  chatId: string;
+}
 
 const quickReactions = ["❤️", "👍", "😂", "😮", "😢", "🔥", "🎉", "💯"];
 
 export default function Message() {
-  const { user } = db.useAuth();
+  const { user, isLoading: authLoading } = db.useAuth();
   const [message, setMessage] = useState("");
   const scrollViewRef = useRef<ScrollView>(null);
   const [selectedMessage, setSelectedMessage] = useState<any>(null);
@@ -39,6 +63,22 @@ export default function Message() {
   const [viewingImage, setViewingImage] = useState<string | null>(null);
   const lastScrollY = useRef(0);
   const scrollStartY = useRef(0);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(true);
+  const [hasLoadError, setHasLoadError] = useState(false);
+  
+  const swipeAnimations = useRef<{ [key: string]: { translateX: Animated.Value, opacity: Animated.Value } }>({}).current;
+  const screenWidth = Dimensions.get('window').width;
+  
+  const getSwipeAnimation = (msgId: string) => {
+    if (!swipeAnimations[msgId]) {
+      swipeAnimations[msgId] = {
+        translateX: new Animated.Value(0),
+        opacity: new Animated.Value(0)
+      };
+    }
+    return swipeAnimations[msgId];
+  };
 
   const { data: profileData } = db.useQuery(
     user ? {
@@ -94,20 +134,27 @@ export default function Message() {
   );
 
   const messages = React.useMemo(() => {
-    if (!messageData?.messages || !choice || !userProfile?.username || !otherUsername) return [];
+    if (!messageData?.messages || !choice || !userProfile?.username || !otherUsername) {
+      setIsLoadingMessages(false);
+      return [] as MessageType[];
+    }
 
-    const usernames = [userProfile.username, otherUsername].sort();
-    const chatId = `${choice.activeType}_${usernames[0]}_${usernames[1]}`;
+    const chatId = getChatId(choice.activeType, userProfile.username, otherUsername);
 
-    const filtered = messageData.messages.filter(msg =>
-      msg.chatType === choice.activeType &&
-      msg.chatId === chatId
-    );
+    const filtered = messageData.messages.filter((msg: any) => {
+      const msgChatIdMatches = msg.chatId === chatId;
+      const msgUsersMatch = 
+        (msg.senderUsername === userProfile.username && msg.receiverUsername === otherUsername) ||
+        (msg.senderUsername === otherUsername && msg.receiverUsername === userProfile.username);
+      
+      return msg.chatType === choice.activeType && (msgChatIdMatches || msgUsersMatch);
+    });
 
     console.log("Filtered messages:", filtered.length, "from total:", messageData.messages.length);
     console.log("Looking for chatType:", choice.activeType, "chatId:", chatId);
 
-    return filtered.sort((a, b) => a.createdAt - b.createdAt);
+    setIsLoadingMessages(false);
+    return filtered.sort((a: MessageType, b: MessageType) => a.createdAt - b.createdAt);
   }, [messageData?.messages, choice, userProfile?.username, otherUsername]);
   const theme = themes[choice?.activeType] || themes.relationship;
 
@@ -138,13 +185,10 @@ export default function Message() {
     }
   }, [messages, userProfile?.username]);
 
-  const getChatId = () => {
-    if (!userProfile?.username || !otherUsername) return null;
-    const usernames = [userProfile.username, otherUsername].sort();
-    return `${choice?.activeType}_${usernames[0]}_${usernames[1]}`;
-  };
-
-  const consistentChatId = getChatId();
+  const consistentChatId = React.useMemo(() => {
+    if (!userProfile?.username || !otherUsername || !choice) return null;
+    return getChatId(choice.activeType, userProfile.username, otherUsername);
+  }, [userProfile?.username, otherUsername, choice?.activeType]);
 
   const handleReaction = async (emoji: string) => {
     if (!selectedMessage || !userProfile?.username) return;
@@ -227,10 +271,10 @@ export default function Message() {
 
       const base64Data = viewingImage.split(',')[1];
       const filename = `fuzzy_${Date.now()}.jpg`;
-      const fileUri = `${FileSystem.documentDirectory}${filename}`;
+      const fileUri = `${documentDirectory || ''}${filename}`;
 
-      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-        encoding: FileSystem.EncodingType.Base64,
+      await writeAsStringAsync(fileUri, base64Data, {
+        encoding: 'base64' as any,
       });
 
       await MediaLibrary.saveToLibraryAsync(fileUri);
@@ -341,7 +385,7 @@ export default function Message() {
             Select a chat from the Chats screen first
           </Text>
           <TouchableOpacity
-            onPress={() => router.push("/chats")}
+            onPress={() => safeNavigate.push("/chats")}
             className="bg-white/10 rounded-xl px-6 py-3 border border-white/20"
           >
             <Text className="text-white font-semibold">Go to Chats</Text>
@@ -369,7 +413,7 @@ export default function Message() {
         <View className="h-20">
           <View className="flex-row items-center h-full px-4">
             <TouchableOpacity
-              onPress={() => router.back()}
+              onPress={() => safeNavigate.back()}
               className="bg-white/10 rounded-full w-10 h-10 items-center justify-center mr-4 border border-white/20"
             >
               <Text className="text-white text-lg font-bold">‹</Text>
@@ -404,6 +448,7 @@ export default function Message() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ flexGrow: 1 }}
           keyboardShouldPersistTaps="handled"
+          scrollEnabled={scrollEnabled}
           onScrollBeginDrag={(event) => {
             scrollStartY.current = event.nativeEvent.contentOffset.y;
             lastScrollY.current = event.nativeEvent.contentOffset.y;
@@ -420,7 +465,11 @@ export default function Message() {
           }}
           scrollEventThrottle={16}
         >
-          {messages.length === 0 ? (
+          {isLoadingMessages ? (
+            <View className="flex-1 items-center justify-center py-20">
+              <LoadingSpinner message="Loading messages..." color="white" />
+            </View>
+          ) : messages.length === 0 ? (
             <View className="flex-1 items-center justify-center py-20">
               <Text className="text-white/40 text-center">
                 No messages yet. Start the conversation!
@@ -438,6 +487,88 @@ export default function Message() {
               const showSeen = isMyMessage &&
                                msg.isRead &&
                                (!nextMsg || nextMsg.senderUsername !== msg.senderUsername);
+              
+              const { translateX, opacity } = getSwipeAnimation(msg.id);
+              
+              const panResponder = PanResponder.create({
+                onStartShouldSetPanResponder: () => false,
+                onMoveShouldSetPanResponder: (evt, gestureState) => {
+                  const shouldRespond = Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 15;
+                  if (shouldRespond) {
+                    setScrollEnabled(false);
+                  }
+                  return shouldRespond;
+                },
+                onPanResponderGrant: () => {
+                  setScrollEnabled(false);
+                },
+                onPanResponderMove: (evt, gestureState) => {
+                  const validSwipe = isMyMessage ? gestureState.dx < 0 : gestureState.dx > 0;
+                  
+                  if (validSwipe) {
+                    const limitedDx = isMyMessage 
+                      ? Math.max(gestureState.dx, -80)
+                      : Math.min(gestureState.dx, 80);
+                    translateX.setValue(limitedDx);
+                    
+                    const distance = Math.abs(gestureState.dx);
+                    const opacityValue = Math.min(distance / 50, 1);
+                    opacity.setValue(opacityValue);
+                  } else {
+                    translateX.setValue(0);
+                    opacity.setValue(0);
+                  }
+                },
+                onPanResponderRelease: async (evt, gestureState) => {
+                  setScrollEnabled(true);
+                  
+                  const validSwipe = isMyMessage ? gestureState.dx < 0 : gestureState.dx > 0;
+                  const distance = Math.abs(gestureState.dx);
+                  
+                  if (validSwipe && distance > 40) {
+                    setReplyingTo({
+                      id: msg.id,
+                      text: msg.text,
+                      senderUsername: msg.senderUsername
+                    });
+                    
+                    try {
+                      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    } catch (e) {}
+                  }
+                  
+                  Animated.parallel([
+                    Animated.spring(translateX, {
+                      toValue: 0,
+                      useNativeDriver: true,
+                      tension: 40,
+                      friction: 8,
+                    }),
+                    Animated.timing(opacity, {
+                      toValue: 0,
+                      duration: 200,
+                      useNativeDriver: true,
+                    }),
+                  ]).start();
+                },
+                onPanResponderTerminate: () => {
+                  setScrollEnabled(true);
+                  
+                  Animated.parallel([
+                    Animated.spring(translateX, {
+                      toValue: 0,
+                      useNativeDriver: true,
+                      tension: 40,
+                      friction: 8,
+                    }),
+                    Animated.timing(opacity, {
+                      toValue: 0,
+                      duration: 200,
+                      useNativeDriver: true,
+                    }),
+                  ]).start();
+                },
+              });
 
               return (
                 <View
@@ -449,19 +580,27 @@ export default function Message() {
                       {msg.senderUsername}
                     </Text>
                   )}
-                  <Pressable
-                    onLongPress={async () => {
-                      Keyboard.dismiss();
-                      try {
-                        await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      } catch (error) {
-                        console.log('Haptics not available:', error);
-                      }
-                      setSelectedMessage(msg);
-                      setShowMessageActions(true);
+                  
+                  <Animated.View
+                    {...panResponder.panHandlers}
+                    style={{
+                      transform: [{ translateX }],
+                      alignItems: isMyMessage ? 'flex-end' : 'flex-start',
                     }}
                   >
-                  <View
+                    <Pressable
+                      onLongPress={async () => {
+                        Keyboard.dismiss();
+                        try {
+                          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        } catch (error) {
+                          console.log('Haptics not available:', error);
+                        }
+                        setSelectedMessage(msg);
+                        setShowMessageActions(true);
+                      }}
+                    >
+                    <View
                     style={{
                       backgroundColor: isMyMessage
                         ? theme.card
@@ -523,7 +662,9 @@ export default function Message() {
                       )}
                     </View>
                   </View>
-                  </Pressable>
+                    </Pressable>
+                  </Animated.View>
+                  
                   {msg.reactions && Object.keys(msg.reactions).length > 0 && (
                     <View
                       className={`flex-row flex-wrap mt-1 ${isMyMessage ? 'justify-end' : 'justify-start'}`}

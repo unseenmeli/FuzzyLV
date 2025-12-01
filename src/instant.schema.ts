@@ -13,6 +13,7 @@ const _schema = i.schema({
       emoji: i.string().optional(),
       pushToken: i.string().optional(),
       notificationsEnabled: i.boolean().optional(),
+      ageGroup: i.string().optional(),
       createdAt: i.number(),
     }),
     connections: i.entity({
@@ -49,6 +50,8 @@ const _schema = i.schema({
       partnerMood: i.string().optional(),
       partnerNote: i.string().optional(),
       partnerUsername: i.string().optional(),
+      myLocation: i.any().optional(),
+      partnerLocation: i.any().optional(),
       createdAt: i.number(),
     }),
     friendships: i.entity({
@@ -63,6 +66,8 @@ const _schema = i.schema({
       status: i.string().optional(),
       friendUsername: i.string().optional(),
       lastSeen: i.number().optional(),
+      myLocation: i.any().optional(),
+      partnerLocation: i.any().optional(),
       createdAt: i.number(),
     }),
     groups: i.entity({
@@ -89,6 +94,9 @@ const _schema = i.schema({
       groupId: i.string().optional(),
       createdAt: i.number(),
       isRead: i.boolean().optional(),
+      reactions: i.any().optional(),
+      replyTo: i.any().optional(),
+      image: i.string().optional(),
     }),
     fingerTaps: i.entity({
       userId: i.string(),

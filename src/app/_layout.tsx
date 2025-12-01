@@ -13,7 +13,7 @@ export default function Layout() {
     body: string;
     data?: any;
   } | null>(null);
-  const notificationListener = useRef<Notifications.Subscription>();
+  const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
 
   useEffect(() => {
     notificationListener.current = Notifications.addNotificationReceivedListener(

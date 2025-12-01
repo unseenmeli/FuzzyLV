@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from "react";
-import * as Haptics from 'expo-haptics';
-import { BlurView } from 'expo-blur';
+import * as Haptics from "expo-haptics";
+import { BlurView } from "expo-blur";
 import * as ImagePicker from "expo-image-picker";
-import * as MediaLibrary from 'expo-media-library';
-import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from "expo-media-library";
+import { documentDirectory, writeAsStringAsync } from "expo-file-system/legacy";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View,
   Text,
@@ -20,14 +21,16 @@ import {
   Modal,
   Clipboard,
   Animated,
+  PanResponder,
+  Dimensions,
 } from "react-native";
-import { router } from "expo-router";
+import { safeNavigate } from "@/utils/navigation";
 import db from "@/utils/db";
 import { GradientBackground } from "@/utils/shared";
 import { id } from "@instantdb/react-native";
 import pushNotificationService from "@/services/pushNotificationService";
 
-const quickReactions = ["🔥", "💋", "🥵", "😈", "💦", "🍑", "🌶️", "💕"];
+const quickReactions = ["❤️", "👍", "😂", "😮", "😢", "🔥", "🎉", "💯"];
 
 const spicyQuestions = {
   light: [
@@ -167,24 +170,48 @@ export default function SpicyMessage() {
   const scaleAnimation = useRef(new Animated.Value(0)).current;
   const fadeAnimation = useRef(new Animated.Value(0)).current;
   const [showQuestionsModal, setShowQuestionsModal] = useState(false);
-  const [questionIntensity, setQuestionIntensity] = useState<'light' | 'medium' | 'heavy'>('light');
+  const [questionIntensity, setQuestionIntensity] = useState<
+    "light" | "medium" | "heavy"
+  >("light");
   const [usedQuestions, setUsedQuestions] = useState<Set<string>>(new Set());
   const [ageVerified, setAgeVerified] = useState(false);
+  const [ageCheckLoaded, setAgeCheckLoaded] = useState(false);
+  const [userAgeGroup, setUserAgeGroup] = useState<"teen" | "adult" | null>(null);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+
+  const swipeAnimations = useRef<{
+    [key: string]: { translateX: Animated.Value; opacity: Animated.Value };
+  }>({}).current;
+  const screenWidth = Dimensions.get("window").width;
+
+  const getSwipeAnimation = (msgId: string) => {
+    if (!swipeAnimations[msgId]) {
+      swipeAnimations[msgId] = {
+        translateX: new Animated.Value(0),
+        opacity: new Animated.Value(0),
+      };
+    }
+    return swipeAnimations[msgId];
+  };
 
   const { data: profileData } = db.useQuery(
-    user ? {
-      profiles: { $: { where: { "owner.id": user.id } } },
-      choice: { $: { where: { "owner.id": user.id } } }
-    } : {}
+    user
+      ? {
+          profiles: { $: { where: { "owner.id": user.id } } },
+          choice: { $: { where: { "owner.id": user.id } } },
+        }
+      : {}
   );
 
   const userProfile = profileData?.profiles?.[0];
   const choice = profileData?.choice?.[0];
 
   const { data: chatData } = db.useQuery(
-    user && choice && choice.activeType === "relationship" ? {
-      relationships: { $: { where: { id: choice.activeId } } }
-    } : {}
+    user && choice && choice.activeType === "relationship"
+      ? {
+          relationships: { $: { where: { id: choice.activeId } } },
+        }
+      : {}
   );
 
   const activeChat = chatData?.relationships?.[0];
@@ -197,19 +224,27 @@ export default function SpicyMessage() {
   const otherUsername = getOtherUsername();
 
   const { data: messageData } = db.useQuery(
-    userProfile ? {
-      messages: {}
-    } : {}
+    userProfile
+      ? {
+          messages: {},
+        }
+      : {}
   );
 
   const messages = React.useMemo(() => {
-    if (!messageData?.messages || !choice || !userProfile?.username || !otherUsername) return [];
+    if (
+      !messageData?.messages ||
+      !choice ||
+      !userProfile?.username ||
+      !otherUsername
+    )
+      return [];
 
-    const roomId = [userProfile.username, otherUsername].sort().join('-');
+    const roomId = [userProfile.username, otherUsername].sort().join("-");
 
     return messageData.messages
       .filter((msg: any) => {
-        return msg.chatType === 'spicy' && msg.chatId === roomId;
+        return msg.chatType === "spicy" && msg.chatId === roomId;
       })
       .map((msg: any) => {
         try {
@@ -219,15 +254,60 @@ export default function SpicyMessage() {
             text: parsed.text || msg.text,
             image: parsed.image || null,
             replyTo: parsed.replyTo || null,
-            replyContent: parsed.replyContent || null
+            replyContent: parsed.replyContent || null,
+            reactions: msg.reactions || {} as Record<string, string>,
           };
         } catch {
-          return msg;
+          return {
+            ...msg,
+            reactions: msg.reactions || {} as Record<string, string>
+          };
         }
       })
       .sort((a: any, b: any) => a.createdAt - b.createdAt);
   }, [messageData, choice, userProfile, otherUsername]);
 
+  useEffect(() => {
+    if (!messages || !userProfile?.username) return;
+
+    const unreadMessages = messages.filter(
+      (msg) => !msg.isRead && msg.receiverUsername === userProfile.username
+    );
+
+    if (unreadMessages.length > 0) {
+      Promise.all(
+        unreadMessages.map((msg) =>
+          db.transact([db.tx.messages[msg.id].update({ isRead: true })])
+        )
+      ).catch(console.error);
+    }
+  }, [messages, userProfile]);
+
+  useEffect(() => {
+    const checkAgeVerification = async () => {
+      try {
+        let ageGroup = userProfile?.ageGroup || null;
+
+        if (!ageGroup) {
+          ageGroup = await AsyncStorage.getItem("ageGroup");
+        }
+
+        setUserAgeGroup(ageGroup as "teen" | "adult" | null);
+
+        if (ageGroup === "adult") {
+          const spicyVerified = await AsyncStorage.getItem("spicyAgeVerified");
+          if (spicyVerified === "true") {
+            setAgeVerified(true);
+          }
+        }
+        setAgeCheckLoaded(true);
+      } catch (error) {
+        console.error("Error checking age verification:", error);
+        setAgeCheckLoaded(true);
+      }
+    };
+    checkAgeVerification();
+  }, [userProfile]);
 
   const sendMessage = async () => {
     if (!message.trim() && !selectedImage) return;
@@ -240,7 +320,7 @@ export default function SpicyMessage() {
 
     try {
       const messageId = id();
-      const roomId = [userProfile.username, otherUsername].sort().join('-');
+      const roomId = [userProfile.username, otherUsername].sort().join("-");
       const messageContent: any = {
         text: messageText || "",
         chatType: "spicy",
@@ -252,18 +332,18 @@ export default function SpicyMessage() {
       };
 
       if (selectedImage) {
-        messageContent.text = JSON.stringify({ 
-          text: messageText || "", 
-          image: selectedImage 
+        messageContent.text = JSON.stringify({
+          text: messageText || "",
+          image: selectedImage,
         });
       }
 
       if (replyingTo) {
-        messageContent.text = JSON.stringify({ 
+        messageContent.text = JSON.stringify({
           text: messageText || "",
           image: selectedImage || null,
           replyTo: replyingTo.id,
-          replyContent: replyingTo.text || "Image"
+          replyContent: replyingTo.text || "Image",
         });
       }
 
@@ -277,19 +357,22 @@ export default function SpicyMessage() {
         const recipientResult = await db.queryOnce({
           profiles: {
             $: {
-              where: { username: otherUsername }
-            }
-          }
+              where: { username: otherUsername },
+            },
+          },
         });
 
         const recipientProfile = recipientResult.data?.profiles?.[0];
 
-        if (recipientProfile?.pushToken && recipientProfile?.notificationsEnabled) {
+        if (
+          recipientProfile?.pushToken &&
+          recipientProfile?.notificationsEnabled
+        ) {
           await pushNotificationService.sendMessageNotification(
             recipientProfile.pushToken,
             userProfile.username,
             messageText || "Sent a spicy photo 🔥",
-            'relationship'
+            "relationship"
           );
         }
       } catch (notifError) {
@@ -303,11 +386,30 @@ export default function SpicyMessage() {
     }
   };
 
-  const handleReaction = async (reaction: string) => {
-    if (!selectedMessage || !user) return;
+  const handleReaction = async (emoji: string) => {
+    if (!selectedMessage || !userProfile?.username) return;
 
-    setShowMessageActions(false);
-    setSelectedMessage(null);
+    try {
+      const currentReactions = selectedMessage.reactions || {};
+      const newReactions = { ...currentReactions };
+
+      if (newReactions[userProfile.username] === emoji) {
+        delete newReactions[userProfile.username];
+      } else {
+        newReactions[userProfile.username] = emoji;
+      }
+
+      await db.transact([
+        db.tx.messages[selectedMessage.id].update({
+          reactions: Object.keys(newReactions).length > 0 ? newReactions : null,
+        }),
+      ]);
+
+      setShowMessageActions(false);
+      setSelectedMessage(null);
+    } catch (error) {
+      console.error("Error adding reaction:", error);
+    }
   };
 
   const deleteMessage = async () => {
@@ -329,15 +431,14 @@ export default function SpicyMessage() {
             } catch (error) {
               console.error("Error deleting message:", error);
             }
-          }
-        }
+          },
+        },
       ]
     );
   };
 
   const handlePlusPress = () => {
     if (showPlusOptions) {
-
       Animated.parallel([
         Animated.timing(scaleAnimation, {
           toValue: 0,
@@ -356,7 +457,6 @@ export default function SpicyMessage() {
         }),
       ]).start(() => setShowPlusOptions(false));
     } else {
-
       setShowPlusOptions(true);
       Animated.parallel([
         Animated.spring(spinAnimation, {
@@ -380,28 +480,31 @@ export default function SpicyMessage() {
     }
   };
 
-  const handleOptionPress = (option: 'photo' | 'ai' | 'questions') => {
+  const handleOptionPress = (option: "photo" | "ai" | "questions") => {
     handlePlusPress();
 
-    if (option === 'photo') {
+    if (option === "photo") {
       setTimeout(() => pickImage(), 300);
-    } else if (option === 'ai') {
+    } else if (option === "ai") {
       Alert.alert("AI Assistant", "AI suggestions coming soon!");
-    } else if (option === 'questions') {
+    } else if (option === "questions") {
       setTimeout(() => setShowQuestionsModal(true), 300);
     }
   };
 
   const sendQuestion = (question: string) => {
     setMessage(question);
-    setUsedQuestions(prev => new Set(prev).add(question));
+    setUsedQuestions((prev) => new Set(prev).add(question));
     setShowQuestionsModal(false);
   };
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Denied", "Sorry, we need camera roll permissions to upload images.");
+      Alert.alert(
+        "Permission Denied",
+        "Sorry, we need camera roll permissions to upload images."
+      );
       return;
     }
 
@@ -422,33 +525,130 @@ export default function SpicyMessage() {
   const saveImageToGallery = async (imageUri: string) => {
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Sorry, we need gallery permissions to save images.');
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Denied",
+          "Sorry, we need gallery permissions to save images."
+        );
         return;
       }
 
-      const base64Data = imageUri.replace(/^data:image\/[a-z]+;base64,/, '');
-      const fileUri = FileSystem.documentDirectory + `spicy_image_${Date.now()}.jpg`;
+      const base64Data = imageUri.replace(/^data:image\/[a-z]+;base64,/, "");
+      const fileUri =
+        (documentDirectory || '') + `spicy_image_${Date.now()}.jpg`;
 
-      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-        encoding: FileSystem.EncodingType.Base64,
+      await writeAsStringAsync(fileUri, base64Data, {
+        encoding: 'base64' as any,
       });
 
       const asset = await MediaLibrary.createAssetAsync(fileUri);
-      await MediaLibrary.createAlbumAsync('Fuzzy Spicy', asset, false);
+      await MediaLibrary.createAlbumAsync("Fuzzy Spicy", asset, false);
 
-      Alert.alert('Success', 'Image saved to gallery! 🔥');
+      Alert.alert("Success", "Image saved to gallery! 🔥");
     } catch (error) {
-      console.error('Error saving image:', error);
-      Alert.alert('Error', 'Failed to save image to gallery');
+      console.error("Error saving image:", error);
+      Alert.alert("Error", "Failed to save image to gallery");
     }
   };
 
   const renderMessage = (msg: any, index: number) => {
     const isOwnMessage = msg.senderUsername === userProfile?.username;
-    const showTimestamp = index === 0 ||
+    const nextMsg = messages[index + 1];
+    const prevMsg = messages[index - 1];
+    const showTimestamp =
+      index === 0 ||
       (messages[index - 1] &&
-       new Date(msg.createdAt).toDateString() !== new Date(messages[index - 1].createdAt).toDateString());
+        new Date(msg.createdAt).toDateString() !==
+          new Date(messages[index - 1].createdAt).toDateString());
+    const showSeen =
+      isOwnMessage &&
+      msg.isRead &&
+      (!nextMsg || nextMsg.senderUsername !== msg.senderUsername);
+
+    const reactions = msg.reactions || {};
+    const reactionEntries = Object.entries(reactions);
+
+    const { translateX, opacity } = getSwipeAnimation(msg.id);
+    const panResponder = PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => {
+        const shouldRespond =
+          Math.abs(gestureState.dx) > 10 && Math.abs(gestureState.dy) < 15;
+        if (shouldRespond) {
+          setScrollEnabled(false);
+        }
+        return shouldRespond;
+      },
+      onPanResponderGrant: () => {
+        setScrollEnabled(false);
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const validSwipe = isOwnMessage
+          ? gestureState.dx < 0
+          : gestureState.dx > 0;
+
+        if (validSwipe) {
+          const limitedDx = isOwnMessage
+            ? Math.max(gestureState.dx, -80)
+            : Math.min(gestureState.dx, 80);
+          translateX.setValue(limitedDx);
+
+          const distance = Math.abs(gestureState.dx);
+          const opacityValue = Math.min(distance / 50, 1);
+          opacity.setValue(opacityValue);
+        } else {
+          translateX.setValue(0);
+          opacity.setValue(0);
+        }
+      },
+      onPanResponderRelease: async (evt, gestureState) => {
+        setScrollEnabled(true);
+
+        const validSwipe = isOwnMessage
+          ? gestureState.dx < 0
+          : gestureState.dx > 0;
+        const distance = Math.abs(gestureState.dx);
+
+        if (validSwipe && distance > 40) {
+          setReplyingTo(msg);
+
+          try {
+            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          } catch (e) {}
+        }
+
+        Animated.parallel([
+          Animated.spring(translateX, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 40,
+            friction: 8,
+          }),
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      },
+      onPanResponderTerminate: () => {
+        setScrollEnabled(true);
+
+        Animated.parallel([
+          Animated.spring(translateX, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 40,
+            friction: 8,
+          }),
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      },
+    });
 
     return (
       <View key={msg.id}>
@@ -458,74 +658,173 @@ export default function SpicyMessage() {
           </Text>
         )}
 
-        <Pressable
-          onLongPress={async () => {
-            try {
-              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            } catch (error) {
-              console.log('Haptics not available:', error);
-            }
-            setSelectedMessage(msg);
-            setShowMessageActions(true);
+        <Animated.View
+          {...panResponder.panHandlers}
+          style={{
+            transform: [{ translateX }],
           }}
-          className={`${isOwnMessage ? "items-end" : "items-start"} mb-2 px-3`}
         >
-          <View
-            style={{
-              maxWidth: "80%",
-              backgroundColor: isOwnMessage ? 'rgba(220, 38, 38, 0.25)' : 'rgba(0, 0, 0, 0.3)',
-              borderWidth: 1,
-              borderColor: isOwnMessage ? 'rgba(239, 68, 68, 0.6)' : 'rgba(220, 38, 38, 0.5)',
-              borderRadius: 16,
-              borderTopRightRadius: isOwnMessage ? 4 : 16,
-              borderTopLeftRadius: isOwnMessage ? 16 : 4,
+          <Pressable
+            onLongPress={async () => {
+              try {
+                await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              } catch (error) {
+                console.log("Haptics not available:", error);
+              }
+              setSelectedMessage(msg);
+              setShowMessageActions(true);
             }}
-            className="px-4 py-3"
+            className={`${
+              isOwnMessage ? "items-end" : "items-start"
+            } mb-2 px-3`}
           >
-            {msg.replyTo && (
-              <View className="bg-black/30 rounded-lg p-2 mb-2 border-l-2 border-red-400">
-                <Text className="text-pink-300/70 text-xs">
-                  Replying to
+            <View
+              style={{
+                maxWidth: "80%",
+                backgroundColor: isOwnMessage
+                  ? "rgba(220, 38, 38, 0.25)"
+                  : "rgba(0, 0, 0, 0.3)",
+                borderWidth: 1,
+                borderColor: isOwnMessage
+                  ? "rgba(239, 68, 68, 0.6)"
+                  : "rgba(220, 38, 38, 0.5)",
+                borderRadius: 16,
+                borderTopRightRadius: isOwnMessage ? 4 : 16,
+                borderTopLeftRadius: isOwnMessage ? 16 : 4,
+              }}
+              className="px-4 py-3"
+            >
+              {msg.replyTo && (
+                <View className="bg-black/30 rounded-lg p-2 mb-2 border-l-2 border-red-400">
+                  <Text className="text-pink-300/70 text-xs">Replying to</Text>
+                  <Text className="text-pink-200 text-sm" numberOfLines={1}>
+                    {messages.find((m: any) => m.id === msg.replyTo)?.text ||
+                      "Message"}
+                  </Text>
+                </View>
+              )}
+
+              {msg.image && (
+                <TouchableOpacity onPress={() => setViewingImage(msg.image)}>
+                  <Image
+                    source={{ uri: msg.image }}
+                    style={{
+                      width: 200,
+                      height: 150,
+                      borderRadius: 8,
+                      marginBottom: msg.text ? 8 : 0,
+                      borderWidth: 1,
+                      borderColor: "rgba(239, 68, 68, 0.3)",
+                    }}
+                  />
+                </TouchableOpacity>
+              )}
+
+              {msg.text ? (
+                <Text
+                  className={
+                    isOwnMessage ? "text-white font-medium" : "text-red-100"
+                  }
+                >
+                  {msg.text}
                 </Text>
-                <Text className="text-pink-200 text-sm" numberOfLines={1}>
-                  {messages.find((m: any) => m.id === msg.replyTo)?.text || "Message"}
+              ) : null}
+
+              <View className="flex-row items-center justify-between mt-2">
+                <Text
+                  className={
+                    isOwnMessage
+                      ? "text-red-300/70 text-xs"
+                      : "text-red-400/70 text-xs"
+                  }
+                >
+                  {new Date(msg.createdAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </Text>
+                {isOwnMessage && (
+                  <Text className="text-red-300/50 text-xs ml-2">
+                    {msg.isRead ? "✓✓" : "✓"}
+                  </Text>
+                )}
+              </View>
+            </View>
+
+            {reactionEntries.length > 0 && (
+              <View className="flex-row mt-1">
+                {reactionEntries.map(([username, emoji]) => (
+                  <View
+                    key={username}
+                    className="bg-black/30 rounded-full px-2 py-1 mr-1"
+                  >
+                    <Text className="text-xs">{String(emoji)}</Text>
+                  </View>
+                ))}
               </View>
             )}
+          </Pressable>
+        </Animated.View>
 
-            {msg.image && (
-              <TouchableOpacity onPress={() => setViewingImage(msg.image)}>
-                <Image
-                  source={{ uri: msg.image }}
-                  style={{
-                    width: 200,
-                    height: 150,
-                    borderRadius: 8,
-                    marginBottom: msg.text ? 8 : 0,
-                    borderWidth: 1,
-                    borderColor: 'rgba(239, 68, 68, 0.3)'
-                  }}
-                />
-              </TouchableOpacity>
-            )}
-
-            {msg.text ? (
-              <Text className={isOwnMessage ? "text-white font-medium" : "text-red-100"}>
-                {msg.text}
-              </Text>
-            ) : null}
-
-            <Text className={isOwnMessage ? "text-red-300/70 text-xs mt-2" : "text-red-400/70 text-xs mt-2"}>
-              {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-
-          </View>
-        </Pressable>
+        {showSeen && (
+          <Text className="text-red-300/30 text-xs mt-1 mr-4 text-right">
+            Seen
+          </Text>
+        )}
       </View>
     );
   };
 
-  if (!ageVerified) {
+  const handleAgeConfirmation = async () => {
+    try {
+      await AsyncStorage.setItem("spicyAgeVerified", "true");
+      setAgeVerified(true);
+    } catch (error) {
+      console.error("Error saving age verification:", error);
+      setAgeVerified(true);
+    }
+  };
+
+  if (!ageCheckLoaded) {
+    return null;
+  }
+
+  if (userAgeGroup === "teen") {
+    return (
+      <View className="flex-1">
+        <GradientBackground colors={spicyTheme.gradient} />
+        <View className="flex-1 bg-black/50 justify-center items-center p-6">
+          <View className="bg-red-950 rounded-3xl p-8 border border-red-600 w-full max-w-sm">
+            <Text className="text-6xl text-center mb-4">🔒</Text>
+            <Text className="text-red-100 text-2xl font-bold text-center mb-4">
+              Content Restricted
+            </Text>
+            <Text className="text-red-300 text-center mb-6">
+              This feature is only available for users 18 and older.
+            </Text>
+            <Text className="text-red-200/80 text-center mb-8">
+              As a teen user, you have access to all other amazing features to connect with your friends and partners in a safe environment!
+            </Text>
+
+            <TouchableOpacity
+              onPress={() => safeNavigate.back()}
+              className="py-4 rounded-xl bg-red-700"
+            >
+              <Text className="text-white text-center font-bold">
+                Go Back
+              </Text>
+            </TouchableOpacity>
+
+            <Text className="text-red-500/50 text-xs text-center mt-6">
+              We take safety seriously and ensure age-appropriate content for all users.
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  }
+
+  if (!ageVerified && userAgeGroup === "adult") {
     return (
       <View className="flex-1">
         <GradientBackground colors={spicyTheme.gradient} />
@@ -536,7 +835,8 @@ export default function SpicyMessage() {
               Age Verification
             </Text>
             <Text className="text-red-300 text-center mb-8">
-              This content is for adults only. You must be 18 years or older to continue.
+              This content is for adults only. You must be 18 years or older to
+              continue.
             </Text>
 
             <Text className="text-red-400 text-sm text-center mb-6">
@@ -545,23 +845,28 @@ export default function SpicyMessage() {
 
             <View className="flex-row gap-3">
               <TouchableOpacity
-                onPress={() => router.back()}
+                onPress={() => safeNavigate.back()}
                 className="flex-1 py-4 rounded-xl border border-red-600"
-                style={{ backgroundColor: 'rgba(0,0,0,0.3)' }}
+                style={{ backgroundColor: "rgba(0,0,0,0.3)" }}
               >
-                <Text className="text-red-400 text-center font-semibold">No, Go Back</Text>
+                <Text className="text-red-400 text-center font-semibold">
+                  No, Go Back
+                </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => setAgeVerified(true)}
+                onPress={handleAgeConfirmation}
                 className="flex-1 py-4 rounded-xl bg-red-700"
               >
-                <Text className="text-white text-center font-bold">Yes, I'm 18+</Text>
+                <Text className="text-white text-center font-bold">
+                  Yes, I'm 18+
+                </Text>
               </TouchableOpacity>
             </View>
 
             <Text className="text-red-500/50 text-xs text-center mt-6">
-              By continuing, you confirm that you are legally an adult in your jurisdiction.
+              By continuing, you confirm that you are legally an adult in your
+              jurisdiction.
             </Text>
           </View>
         </View>
@@ -593,7 +898,7 @@ export default function SpicyMessage() {
             <View className="h-28">
               <View className="flex-row items-center h-full px-4">
                 <TouchableOpacity
-                  onPress={() => router.back()}
+                  onPress={() => safeNavigate.back()}
                   className="bg-red-950 rounded-full border border-red-600 items-center justify-center"
                   style={{ width: 40, height: 40 }}
                 >
@@ -609,7 +914,9 @@ export default function SpicyMessage() {
                           style={{ width: 64, height: 64, borderRadius: 32 }}
                         />
                       ) : (
-                        <Text className="text-3xl">{(activeChat as any).emoji || "💕"}</Text>
+                        <Text className="text-3xl">
+                          {(activeChat as any).emoji || "💕"}
+                        </Text>
                       )}
                     </View>
                   )}
@@ -617,7 +924,9 @@ export default function SpicyMessage() {
                     <Text className="text-2xl text-red-100 font-bold">
                       {choice?.activeName || "Spicy Chat"}
                     </Text>
-                    <Text className="text-red-400/80 text-sm">Private & Encrypted</Text>
+                    <Text className="text-red-400/80 text-sm">
+                      Private & Encrypted
+                    </Text>
                   </View>
                 </View>
 
@@ -630,8 +939,11 @@ export default function SpicyMessage() {
             ref={scrollViewRef}
             className="flex-1"
             contentContainerStyle={{ paddingVertical: 16 }}
-            onContentSizeChange={() => scrollViewRef.current?.scrollToEnd({ animated: false })}
+            onContentSizeChange={() =>
+              scrollViewRef.current?.scrollToEnd({ animated: false })
+            }
             showsVerticalScrollIndicator={false}
+            scrollEnabled={scrollEnabled}
           >
             {messages.length === 0 ? (
               <View className="flex-1 items-center justify-center px-8 mt-20">
@@ -684,29 +996,33 @@ export default function SpicyMessage() {
                         opacity: fadeAnimation,
                         transform: [
                           { scale: scaleAnimation },
-                          { translateY: scaleAnimation.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [20, 0],
-                          })},
+                          {
+                            translateY: scaleAnimation.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [20, 0],
+                            }),
+                          },
                         ],
                       }}
                     >
                       <TouchableOpacity
-                        onPress={() => handleOptionPress('questions')}
+                        onPress={() => handleOptionPress("questions")}
                         className="bg-red-900 rounded-full mb-2 border border-red-600 items-center justify-center"
                         style={{ width: 40, height: 40 }}
                       >
                         <Text className="text-red-100 text-lg">❓</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        onPress={() => handleOptionPress('ai')}
+                        onPress={() => handleOptionPress("ai")}
                         className="bg-red-900 rounded-full mb-2 border border-red-600 items-center justify-center"
                         style={{ width: 40, height: 40 }}
                       >
-                        <Text className="text-red-100 text-xs font-bold">AI</Text>
+                        <Text className="text-red-100 text-xs font-bold">
+                          AI
+                        </Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        onPress={() => handleOptionPress('photo')}
+                        onPress={() => handleOptionPress("photo")}
                         className="bg-red-900 rounded-full mb-2 border border-red-600 items-center justify-center"
                         style={{ width: 40, height: 40 }}
                       >
@@ -717,20 +1033,33 @@ export default function SpicyMessage() {
                 )}
                 <Animated.View
                   style={{
-                    transform: [{
-                      rotate: spinAnimation.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: ['0deg', '135deg'],
-                      }),
-                    }],
+                    transform: [
+                      {
+                        rotate: spinAnimation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ["0deg", "135deg"],
+                        }),
+                      },
+                    ],
                   }}
                 >
                   <TouchableOpacity
                     onPress={handlePlusPress}
                     className="rounded-full border border-red-800 items-center justify-center"
-                    style={{ width: 40, height: 40, backgroundColor: showPlusOptions ? '#991b1b' : 'rgba(0,0,0,0.3)' }}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      backgroundColor: showPlusOptions
+                        ? "#991b1b"
+                        : "rgba(0,0,0,0.3)",
+                    }}
                   >
-                    <Text className="text-xl font-bold" style={{ color: showPlusOptions ? '#fef2f2' : '#dc2626' }}>+</Text>
+                    <Text
+                      className="text-xl font-bold"
+                      style={{ color: showPlusOptions ? "#fef2f2" : "#dc2626" }}
+                    >
+                      +
+                    </Text>
                   </TouchableOpacity>
                 </Animated.View>
               </View>
@@ -742,7 +1071,7 @@ export default function SpicyMessage() {
                 placeholder="Type something spicy..."
                 placeholderTextColor="#ef444460"
                 className="flex-1 text-red-100 px-4 py-3 rounded-full mr-2 border border-red-800"
-                style={{ backgroundColor: 'rgba(0,0,0,0.3)', borderWidth: 1 }}
+                style={{ backgroundColor: "rgba(0,0,0,0.3)", borderWidth: 1 }}
                 multiline
                 maxLength={500}
               />
@@ -752,8 +1081,8 @@ export default function SpicyMessage() {
                 disabled={!message.trim() && !selectedImage}
                 className="rounded-full p-3 border border-red-800"
                 style={{
-                  backgroundColor: 'rgba(0,0,0,0.3)',
-                  opacity: (!message.trim() && !selectedImage) ? 0.5 : 1
+                  backgroundColor: "rgba(0,0,0,0.3)",
+                  opacity: !message.trim() && !selectedImage ? 0.5 : 1,
                 }}
               >
                 <Text className="text-white font-bold">🔥</Text>
@@ -767,7 +1096,9 @@ export default function SpicyMessage() {
             animationType="fade"
             onRequestClose={() => setShowMessageActions(false)}
           >
-            <TouchableWithoutFeedback onPress={() => setShowMessageActions(false)}>
+            <TouchableWithoutFeedback
+              onPress={() => setShowMessageActions(false)}
+            >
               <View className="flex-1 justify-end bg-black/50">
                 <View className="bg-red-950 rounded-t-3xl p-6 border-t border-red-500/30">
                   <View className="flex-row justify-around mb-4">
@@ -803,7 +1134,8 @@ export default function SpicyMessage() {
                     <Text className="text-pink-100 text-center">Copy</Text>
                   </TouchableOpacity>
 
-                  {selectedMessage?.senderUsername === userProfile?.username && (
+                  {selectedMessage?.senderUsername ===
+                    userProfile?.username && (
                     <TouchableOpacity
                       onPress={deleteMessage}
                       className="bg-red-600/30 p-4 rounded-xl border border-red-500"
@@ -861,7 +1193,7 @@ export default function SpicyMessage() {
             <View className="flex-1 justify-end bg-black/50">
               <View
                 className="bg-red-950 rounded-t-3xl border-t border-red-600"
-                style={{ maxHeight: '80%' }}
+                style={{ maxHeight: "80%" }}
               >
                 <View className="p-6 border-b border-red-800">
                   <Text className="text-red-100 text-2xl font-bold text-center mb-2">
@@ -880,29 +1212,38 @@ export default function SpicyMessage() {
 
                 <View className="flex-row p-4 border-b border-red-800">
                   <TouchableOpacity
-                    onPress={() => setQuestionIntensity('light')}
+                    onPress={() => setQuestionIntensity("light")}
                     className="flex-1 py-3 rounded-l-xl border border-red-600"
                     style={{
-                      backgroundColor: questionIntensity === 'light' ? '#991b1b' : 'rgba(0,0,0,0.3)',
+                      backgroundColor:
+                        questionIntensity === "light"
+                          ? "#991b1b"
+                          : "rgba(0,0,0,0.3)",
                       borderRightWidth: 0,
                     }}
                   >
                     <Text className="text-center text-red-100">🌸 Light</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => setQuestionIntensity('medium')}
+                    onPress={() => setQuestionIntensity("medium")}
                     className="flex-1 py-3 border-y border-red-600"
                     style={{
-                      backgroundColor: questionIntensity === 'medium' ? '#991b1b' : 'rgba(0,0,0,0.3)',
+                      backgroundColor:
+                        questionIntensity === "medium"
+                          ? "#991b1b"
+                          : "rgba(0,0,0,0.3)",
                     }}
                   >
                     <Text className="text-center text-red-100">🔥 Medium</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    onPress={() => setQuestionIntensity('heavy')}
+                    onPress={() => setQuestionIntensity("heavy")}
                     className="flex-1 py-3 rounded-r-xl border border-red-600"
                     style={{
-                      backgroundColor: questionIntensity === 'heavy' ? '#991b1b' : 'rgba(0,0,0,0.3)',
+                      backgroundColor:
+                        questionIntensity === "heavy"
+                          ? "#991b1b"
+                          : "rgba(0,0,0,0.3)",
                       borderLeftWidth: 0,
                     }}
                   >
@@ -910,7 +1251,10 @@ export default function SpicyMessage() {
                   </TouchableOpacity>
                 </View>
 
-                <ScrollView className="p-4" showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  className="p-4"
+                  showsVerticalScrollIndicator={false}
+                >
                   {spicyQuestions[questionIntensity].map((question, index) => {
                     const isUsed = usedQuestions.has(question);
                     return (
@@ -919,14 +1263,24 @@ export default function SpicyMessage() {
                         onPress={() => !isUsed && sendQuestion(question)}
                         className="border rounded-xl p-4 mb-3"
                         style={{
-                          backgroundColor: isUsed ? 'rgba(0,0,0,0.6)' : 'rgba(0,0,0,0.3)',
-                          borderColor: isUsed ? '#991b1b40' : '#991b1b',
+                          backgroundColor: isUsed
+                            ? "rgba(0,0,0,0.6)"
+                            : "rgba(0,0,0,0.3)",
+                          borderColor: isUsed ? "#991b1b40" : "#991b1b",
                           opacity: isUsed ? 0.5 : 1,
                         }}
                       >
                         <View className="flex-row items-start">
-                          {isUsed && <Text className="text-red-600 mr-2">✓</Text>}
-                          <Text className={isUsed ? "text-red-400/60 flex-1" : "text-red-100 flex-1"}>
+                          {isUsed && (
+                            <Text className="text-red-600 mr-2">✓</Text>
+                          )}
+                          <Text
+                            className={
+                              isUsed
+                                ? "text-red-400/60 flex-1"
+                                : "text-red-100 flex-1"
+                            }
+                          >
                             {question}
                           </Text>
                         </View>

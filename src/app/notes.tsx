@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, TextInput, ScrollView } from "react-native";
-import { router } from "expo-router";
+import { safeNavigate } from "@/utils/navigation";
 import { GradientBackground, themes } from "@/utils/shared";
 import db from "@/utils/db";
 
@@ -61,7 +61,7 @@ export default function Notes() {
           })
         ]);
         
-        const partnerUsername = activeChat.partnerUsername;
+        const partnerUsername = (activeChat as any).partnerUsername;
         const partnerRelationship = allRelationships?.relationships?.find(
           (r: any) => r.partnerUsername === userProfile.username && 
                       r.owner?.id !== user.id
@@ -100,7 +100,7 @@ export default function Notes() {
           ]);
         }
       }
-      router.back();
+      safeNavigate.back();
     } catch (error) {
       console.error("Error updating mood and note:", error);
     }
@@ -124,7 +124,7 @@ export default function Notes() {
       >
         <View className="flex-1 flex-row items-center justify-center px-4">
           <TouchableOpacity 
-            onPress={() => router.back()} 
+            onPress={() => safeNavigate.back()} 
             className="absolute left-4"
             style={{ padding: 10 }}
           >
@@ -206,7 +206,7 @@ export default function Notes() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => safeNavigate.back()}
           className="py-4 mb-8"
         >
           <Text className="text-white/60 text-center">Cancel</Text>
